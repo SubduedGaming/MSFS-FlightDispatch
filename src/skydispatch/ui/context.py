@@ -20,7 +20,7 @@ from ..db.database import Database
 from ..sim.base import SimProvider, SimState
 from ..sim.bridge_server import BridgeHost
 from ..sim.factory import make_provider
-from ..sim.installed import detect_installed, format_ids, parse_ids
+from ..sim.installed import detect_installed, format_ids, parse_ids, searched_locations
 from ..sim.simulated import SimulatedProvider
 from ..voice.service import VoiceService
 from .workers import run_async
@@ -188,9 +188,13 @@ class AppContext(QObject):
             return
         if found is None:
             if force:
-                self.toast.emit("warn", "No MSFS installation found on this computer. Choose your aircraft manually, "
-                                        "or connect to the Bridge on your simulator PC.")
+                self.toast.emit("warn", "No MSFS packages folder found. Looked in: "
+                                        f"{searched_locations(self.settings.sim.packages_path)}. Set your MSFS "
+                                        "packages folder in Settings > Simulator, or choose aircraft manually.")
             return
+        if not found and force:
+            self.toast.emit("warn", "Found your MSFS folder but no supported aircraft in it. Check that the packages "
+                                    "folder is the one containing Community and Official, or choose manually.")
         self._store_installed(found, "this computer")
 
     def _store_installed(self, found: set[str], where: str) -> None:

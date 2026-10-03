@@ -59,3 +59,21 @@ def test_settings_helpers(db):
     s.sim.restrict_to_installed = False
     assert inst.installed_types(s, db) is None
     assert inst.parse_ids("c172, nonsense ,baron") == {"c172", "baron"}
+
+
+def test_custom_path_may_point_at_parent_community_or_official(tmp_path):
+    make_pkg(tmp_path / "MSFS24" / "Packages", "Community", "x", {"Asobo_DA40NG": "Diamond DA40 NG"})
+    make_pkg(tmp_path / "MSFS24" / "Packages", "Official/OneStore", "asobo-aircraft-c172sp", {"Asobo_C172sp": "x"})
+    pk = tmp_path / "MSFS24" / "Packages"
+    for given in (tmp_path / "MSFS24", pk, pk / "Community", pk / "Official", pk / "Official" / "OneStore"):
+        assert {"da40", "c172"} >= inst.detect_installed(str(given)) >= {"da40" if given.name != "OneStore" else "c172"}, given
+    assert inst.detect_installed(str(tmp_path / "MSFS24")) == {"da40", "c172"}      # parent of Packages
+
+
+def test_folder_of_packages_without_community_or_official(tmp_path):
+    make_pkg(tmp_path, "", "asobo-aircraft-tbm930", {"Asobo_TBM930": "Daher TBM 930"})
+    assert inst.detect_installed(str(tmp_path)) == {"tbm9"}
+
+
+def test_searched_locations_mentions_custom_path(tmp_path):
+    assert str(tmp_path) in inst.searched_locations(str(tmp_path))
