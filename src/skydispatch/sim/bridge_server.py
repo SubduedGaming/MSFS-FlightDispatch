@@ -16,6 +16,7 @@ import json
 import logging
 import socket
 import socketserver
+import sys
 import threading
 import time
 from typing import Callable
@@ -106,7 +107,14 @@ class _Handler(socketserver.StreamRequestHandler):
 
 class _Server(socketserver.ThreadingTCPServer):
     daemon_threads = True
-    allow_reuse_address = True
+    # On POSIX, SO_REUSEADDR only skips TIME_WAIT. On Windows it lets a second server steal a live port,
+    # so there we ask for an exclusive bind instead and a busy port raises OSError as it should.
+    allow_reuse_address = sys.platform != "win32"
+
+    def server_bind(self) -> None:
+        if sys.platform == "win32":
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
 
 
 class BridgeHost:
