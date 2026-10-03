@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import html
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QCheckBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTextBrowser, QVBoxLayout)
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import (QCheckBox, QHBoxLayout, QLineEdit, QPushButton, QTextBrowser, QVBoxLayout)
 
 from ...ai.personas import get_persona
 from .. import theme

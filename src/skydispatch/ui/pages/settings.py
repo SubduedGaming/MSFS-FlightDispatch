@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog
                                QHBoxLayout, QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QSpinBox,
                                QTabWidget, QVBoxLayout, QWidget)
 
-from ...ai.llm import LLMError, LMStudioClient
+from ...ai.llm import LMStudioClient
 from ...ai.personas import PERSONAS
 from ...core import paths
 from ...core.config import AISettings

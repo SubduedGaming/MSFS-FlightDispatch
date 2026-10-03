@@ -100,3 +100,16 @@ def test_cannot_accept_two_jobs_or_wrong_location(career):
     from skydispatch.career import CareerError
     with pytest.raises(CareerError):
         career.accept_job(ok[1].id if len(ok) > 1 else ok[0].id, plane.id)
+
+
+def test_restart_closes_interrupted_flight_and_rearms_job(career):
+    job = _pick_job(career)
+    plane = career.db.hangar()[0]
+    career.accept_job(job.id, plane.id)
+    fid = career.db.create_flight(job.id, plane.id, "Cessna", "EGLL")
+    career.db.set_job(job.id, status="active")
+    career._disarm()                               # simulate quitting the app mid-flight
+    career.resume()
+    assert career.db.flight(fid).outcome == "aborted"
+    assert career.db.job(job.id).status == "accepted"
+    assert career.recorder is not None and career.active_job.id == job.id

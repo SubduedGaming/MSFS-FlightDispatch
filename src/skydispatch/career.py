@@ -16,7 +16,7 @@ from .db.database import Database, now_iso
 from .db.models import Airport, HangarAircraft, Job
 from .flight.recorder import FlightRecorder, Live
 from .flight.scoring import FlightMetrics, ScoreResult, score_flight
-from .hangar.service import HangarError, HangarService, airworthiness
+from .hangar.service import HangarService, airworthiness
 from .jobs.generator import JobGenerator
 from .jobs.pricing import check_eligibility, Eligibility
 from .sim.base import SimState
@@ -160,7 +160,10 @@ class Career:
 
     # ------------------------------------------------------------- recording
     def resume(self) -> None:
-        """Re-arm an accepted job after an app restart."""
+        """After an app restart: close flights that were interrupted and re-arm the accepted job."""
+        self.db.x("UPDATE flights SET outcome = 'aborted', ended_at = ?, summary = 'Interrupted (app closed)' "
+                  "WHERE outcome = 'in_progress'", (now_iso(),))
+        self.db.x("UPDATE jobs SET status = 'accepted' WHERE status = 'active'")
         job = self.db.active_job()
         if job and not self.recorder:
             self._arm(job)

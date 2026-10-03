@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QListWidget, QMessageBox, QProgressBar, QPushButton,
                                QVBoxLayout)
 
@@ -150,8 +150,6 @@ class FlightPage(Page):
             rem = f"{fmt.dist(self.settings, live.remaining_nm)} to go  |  " if live.remaining_nm is not None else ""
             self.eta_lbl.setText(f"{eta}{rem}block time {fmt.duration(live.elapsed_min)}  |  max {live.max_g:.2f} G")
         self.map.set_aircraft(s.lat, s.lon, s.heading)
-        if self.map.origin is None and self.career.recorder and self.career.recorder.dest:
-            pass
 
     def _demo(self) -> None:
         err = self.ctx.demo_fly_active_job()

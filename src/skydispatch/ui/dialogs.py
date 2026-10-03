@@ -7,8 +7,6 @@ import sys
 from pathlib import Path
 
 from PySide6 import __version__ as pyside_version
-from PySide6.QtCore import QUrl
-from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFormLayout, QLabel, QMessageBox, QPushButton, QTextBrowser,
                                QVBoxLayout)
 

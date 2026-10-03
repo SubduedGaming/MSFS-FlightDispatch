@@ -6,7 +6,7 @@ import random
 
 from ..core import geo
 from ..core.config import Settings
-from ..data.aircraft import AIRLINER, CATALOG, JET, PISTON, TURBOPROP, TWIN, AircraftType, get_type
+from ..data.aircraft import AIRLINER, CATALOG, PISTON, TURBOPROP, TWIN, AircraftType, get_type
 from ..db.database import Database, iso_in
 from ..db.models import Airport
 from .pricing import (KIND_LABEL, TIER, TIER_NAME, deadline_minutes, difficulty_multiplier, job_payout)

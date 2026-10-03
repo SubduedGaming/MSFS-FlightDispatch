@@ -63,7 +63,7 @@ def write_ico(path: Path, sizes=(16, 32, 48, 64, 128, 256)) -> None:
 
 
 def main() -> None:
-    app = QGuiApplication.instance() or QGuiApplication(sys.argv)
+    _app = QGuiApplication.instance() or QGuiApplication(sys.argv)  # must stay referenced while rendering
     res = ROOT / "src" / "skydispatch" / "resources"
     res.mkdir(parents=True, exist_ok=True)
     render(512).save(str(res / "icon.png"))

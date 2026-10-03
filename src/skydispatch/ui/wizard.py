@@ -1,9 +1,8 @@
 """First-run guided setup: pilot -> simulator -> AI -> voice -> starter aircraft."""
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QComboBox, QFormLayout, QLabel, QLineEdit, QProgressBar, QPushButton, QRadioButton,
-                               QVBoxLayout, QWidget, QWizard, QWizardPage, QCheckBox, QHBoxLayout, QSpinBox)
+                               QVBoxLayout, QWidget, QWizard, QWizardPage, QCheckBox, QSpinBox)
 
 from ..ai.llm import LMStudioClient
 from ..ai.personas import PERSONAS
@@ -12,7 +11,6 @@ from ..data.aircraft import STARTER_IDS, get_type
 from ..sim.simconnect_provider import simconnect_available
 from ..voice import tts as tts_mod
 from ..voice.stt import stt_available
-from . import fmt
 from .context import AppContext
 from .workers import run_async
 

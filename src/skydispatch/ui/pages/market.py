@@ -3,7 +3,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QHBoxLayout, QHeaderView, QLabel,
                                QLineEdit, QMessageBox, QPushButton, QSplitter, QTableWidget, QTableWidgetItem,
-                               QTextBrowser, QVBoxLayout, QWidget)
+                               QTextBrowser, QVBoxLayout)
 
 from ...career import CareerError
 from ...data.aircraft import get_type

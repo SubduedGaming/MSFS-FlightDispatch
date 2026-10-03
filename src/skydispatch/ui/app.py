@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import QLockFile, QByteArray
-from PySide6.QtGui import QFont, QIcon
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from .. import APP_NAME, APP_ORG, __version__
@@ -72,6 +72,14 @@ def run(argv: list[str] | None = None) -> int:
         log.exception("Could not open the career database")
         QMessageBox.critical(None, APP_NAME, f"Could not open your career data:\n{exc}\n\nSee the log in {paths.log_dir()}")
         return 1
+    previous_hook = sys.excepthook
+
+    def notify_hook(exc_type, exc, tb):
+        previous_hook(exc_type, exc, tb)          # logs to file
+        if not ctx.closed:
+            ctx.toast.emit("bad", f"Unexpected error: {exc}. Details are in the log (Help > Open log folder).")
+
+    sys.excepthook = notify_hook
     win = MainWindow(ctx)
     geo = ctx.settings.ui.window_geometry
     if geo:

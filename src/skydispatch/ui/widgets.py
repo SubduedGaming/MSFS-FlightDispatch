@@ -4,9 +4,9 @@ from __future__ import annotations
 import math
 from typing import Sequence
 
-from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPolygonF
-from PySide6.QtWidgets import (QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout,
+from PySide6.QtWidgets import (QFrame, QLabel, QSizePolicy, QVBoxLayout,
                                QWidget)
 
 from ..core import geo

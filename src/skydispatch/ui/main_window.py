@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import logging
-import shutil
-import sys
 from datetime import datetime
 
 from PySide6.QtCore import QEvent, QObject, QTimer, Qt, QUrl, Signal

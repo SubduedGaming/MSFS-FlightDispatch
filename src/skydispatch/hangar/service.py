@@ -4,7 +4,7 @@ from __future__ import annotations
 import random
 import string
 
-from ..data.aircraft import CATALOG, AircraftType, get_type
+from ..data.aircraft import AircraftType, get_type
 from ..db.database import Database
 from ..db.models import HangarAircraft
 

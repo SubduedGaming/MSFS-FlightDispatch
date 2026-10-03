@@ -11,7 +11,7 @@ from ..career import Career
 from ..core.config import Settings
 from ..db.models import Job
 from . import briefing as B
-from .llm import LLMError, LLMReply, LMStudioClient, ToolCall
+from .llm import LLMError, LMStudioClient, ToolCall
 from .personas import Persona, get_persona
 from .tools import TOOL_SCHEMAS, ToolBox
 
