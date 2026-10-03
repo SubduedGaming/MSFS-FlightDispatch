@@ -36,9 +36,9 @@ chmod +x "$PKGROOT/Library/Application Support/SkyDispatch/Uninstall SkyDispatch
 pkgbuild --root "$PKGROOT" --identifier com.skydispatch.app --version "$VERSION" --install-location / \
          "build/SkyDispatch-component.pkg"
 cp LICENSE packaging/macos/resources/license.txt
-SIGN=()
+SIGN=()   # macOS ships bash 3.2: expand with ${SIGN[@]+"${SIGN[@]}"} so an empty array is safe under `set -u`
 [ -n "${MACOS_INSTALLER_IDENTITY:-}" ] && SIGN=(--sign "$MACOS_INSTALLER_IDENTITY")
 productbuild --distribution packaging/macos/distribution.xml --resources packaging/macos/resources \
-             --package-path build "${SIGN[@]}" "dist/SkyDispatch-$VERSION.pkg"
+             --package-path build ${SIGN[@]+"${SIGN[@]}"} "dist/SkyDispatch-$VERSION.pkg"
 rm -f packaging/macos/resources/license.txt
 echo "Built dist/SkyDispatch-$VERSION.dmg and dist/SkyDispatch-$VERSION.pkg"
