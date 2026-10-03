@@ -2,11 +2,11 @@
 from __future__ import annotations
 
 import logging
-import shutil
 import sys
+from pathlib import Path
 
 from PySide6.QtCore import QLockFile, QByteArray
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from .. import APP_NAME, APP_ORG, __version__
@@ -16,6 +16,15 @@ from ..core.logging_setup import setup_logging
 from . import theme
 
 log = logging.getLogger(__name__)
+
+
+def resource_path(name: str) -> Path:
+    """Locate a bundled resource both from source and inside a PyInstaller build."""
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
+    for candidate in (base / "resources" / name, base / "skydispatch" / "resources" / name):
+        if candidate.exists():
+            return candidate
+    return base / "resources" / name
 
 
 def apply_pending_restore() -> None:
@@ -40,6 +49,9 @@ def run(argv: list[str] | None = None) -> int:
     app.setApplicationName(APP_NAME)
     app.setOrganizationName(APP_ORG)
     app.setApplicationVersion(__version__)
+    icon = resource_path("icon.png")
+    if icon.exists():
+        app.setWindowIcon(QIcon(str(icon)))
 
     lock = QLockFile(str(paths.data_dir() / "skydispatch.lock"))
     lock.setStaleLockTime(0)

@@ -39,7 +39,8 @@ class AppContext(QObject):
         self.db = db
         self.career = Career(db, settings)
         self.dispatcher = Dispatcher(self.career, settings)
-        self.voice = VoiceService(settings, get_persona(settings.ai.persona).system_voice_hint)
+        persona = get_persona(settings.ai.persona)
+        self.voice = VoiceService(settings, persona.system_voice_hint, persona.piper_voice)
         self.provider: SimProvider | None = None
         self.sim_connected = False
         self.closed = False
@@ -76,7 +77,9 @@ class AppContext(QObject):
         self.settings.save()
         self.dispatcher.client.cfg = self.settings.ai
         self.dispatcher._prompt_tools = self.settings.ai.tool_mode == "prompt"
-        self.voice.tts.voice_hint = get_persona(self.settings.ai.persona).system_voice_hint
+        persona = get_persona(self.settings.ai.persona)
+        self.voice.tts.voice_hint = persona.system_voice_hint
+        self.voice.tts.persona_voice = persona.piper_voice
         self.settings_changed.emit()
 
     # ------------------------------------------------------------------ sim

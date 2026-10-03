@@ -13,11 +13,11 @@ log = logging.getLogger(__name__)
 
 
 class VoiceService:
-    def __init__(self, settings: Settings, voice_hint: str = ""):
+    def __init__(self, settings: Settings, voice_hint: str = "", persona_voice: str = ""):
         self.settings = settings
         self.mic = MicRecorder(settings.voice)
         self.stt = Transcriber(settings.voice)
-        self.tts = TTSManager(settings.voice, voice_hint)
+        self.tts = TTSManager(settings.voice, voice_hint, persona_voice)
         self._busy = False
 
     # -- capabilities (used by Settings and the setup wizard) --------------------

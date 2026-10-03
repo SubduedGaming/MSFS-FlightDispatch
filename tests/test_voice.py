@@ -46,3 +46,12 @@ def test_tts_falls_back_to_none_gracefully(monkeypatch):
     mgr = tts.TTSManager(s.voice)
     assert mgr.engine() is None      # piper not installed here
     mgr.shutdown()
+
+
+def test_piper_voice_resolution(monkeypatch):
+    s = Settings()
+    assert tts.resolve_piper_voice(s.voice, "en_US-amy-medium") == tts.DEFAULT_PIPER_VOICE   # persona voice not downloaded
+    monkeypatch.setattr(tts, "piper_installed", lambda v: v == "en_US-amy-medium")
+    assert tts.resolve_piper_voice(s.voice, "en_US-amy-medium") == "en_US-amy-medium"
+    s.voice.piper_model = "en_US-ryan-medium"                                               # explicit choice wins
+    assert tts.resolve_piper_voice(s.voice, "en_US-amy-medium") == "en_US-ryan-medium"

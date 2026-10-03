@@ -8,6 +8,7 @@ Use ``--simulate`` to test the link without MSFS.
 from __future__ import annotations
 
 import argparse
+import hmac
 import json
 import logging
 import socket
@@ -69,7 +70,8 @@ class _Handler(socketserver.StreamRequestHandler):
             hello = json.loads(self.rfile.readline() or b"{}")
         except ValueError:
             return
-        if hello.get("hello") != PROTOCOL or (self.hub.token and hello.get("token") != self.hub.token):
+        token_ok = (not self.hub.token) or hmac.compare_digest(str(hello.get("token", "")), self.hub.token)
+        if hello.get("hello") != PROTOCOL or not token_ok:
             self.send(encode_line({"ok": False, "error": "Invalid token"}))
             log.warning("Rejected client %s", self.client_address)
             return

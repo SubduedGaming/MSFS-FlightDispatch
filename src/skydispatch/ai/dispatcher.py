@@ -178,6 +178,7 @@ class Dispatcher:
 
     def enhance_jobs(self, jobs: list[Job]) -> int:
         """Ask the model to rewrite job briefings with personality (one request)."""
+        jobs = [j for j in jobs if not self.db.get_meta(f"enhanced_{j.id}")]
         if not self.settings.ai.ai_job_flavour or not jobs:
             return 0
         items = [{"id": j.id, "type": j.kind, "client": j.client, "from": j.origin, "to": j.dest,
@@ -201,6 +202,7 @@ class Dispatcher:
             new = mapping.get(str(j.id))
             if isinstance(new, str) and 10 < len(new) < 400:
                 self.db.set_job(j.id, briefing=new.strip())
+                self.db.set_meta(f"enhanced_{j.id}", "1")
                 n += 1
         return n
 

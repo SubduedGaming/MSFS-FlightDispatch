@@ -59,7 +59,7 @@ class VoiceSettings:
     tts_voice: str = ""              # engine-specific voice id
     tts_rate: float = 1.0
     tts_volume: float = 0.9
-    piper_model: str = "en_GB-alan-medium"
+    piper_model: str = ""            # blank = the voice that suits the chosen dispatcher
     stt_enabled: bool = True
     stt_model: str = "base.en"       # faster-whisper model size
     stt_device: str = "auto"

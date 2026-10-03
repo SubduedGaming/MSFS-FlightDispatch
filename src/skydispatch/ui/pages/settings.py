@@ -276,8 +276,9 @@ class SettingsPage(Page):
         lay.addWidget(g)
         g2 = QGroupBox("Personality & behaviour")
         f2 = QFormLayout(g2)
-        f2.addRow("Dispatcher:", self._bind(_combo([(f"{p.name} - {p.title}", p.id) for p in PERSONAS.values()]),
-                                            "ai", "persona"))
+        self.persona_combo = self._bind(_combo([(f"{p.name} - {p.title}", p.id) for p in PERSONAS.values()]),
+                                        "ai", "persona")
+        f2.addRow("Dispatcher:", self.persona_combo)
         f2.addRow(self._bind(QCheckBox("Dispatcher comments on my flight (takeoff, landing, warnings)"), "ai",
                              "proactive_comms"))
         f2.addRow(self._bind(QCheckBox("Let the AI write contract descriptions"), "ai", "ai_job_flavour"))
@@ -343,7 +344,8 @@ class SettingsPage(Page):
         f.addRow("Engine:", self._bind(_combo([("Automatic", "auto"), ("Piper (neural, offline)", "piper"),
                                                ("Operating system voice", "system"), ("Off", "none")]),
                                        "voice", "tts_engine"))
-        self.piper_combo = self._bind(_combo([(v, v) for v in PIPER_VOICES], editable=True), "voice", "piper_model")
+        self.piper_combo = self._bind(_combo([("Match the dispatcher", "")] + [(v, v) for v in PIPER_VOICES], editable=True),
+                                      "voice", "piper_model")
         row = QHBoxLayout()
         row.addWidget(self.piper_combo, 1)
         self.dl_btn = QPushButton("Download voice")
@@ -408,7 +410,9 @@ class SettingsPage(Page):
         return w
 
     def _download_voice(self) -> None:
-        voice = self.piper_combo.currentText().strip()
+        from ...ai.personas import get_persona
+        chosen = _combo_value(self.piper_combo)
+        voice = chosen or get_persona(_combo_value(self.persona_combo) or self.settings.ai.persona).piper_voice
         self.dl_btn.setEnabled(False)
         self.dl_bar.setValue(0)
         self.dl_bar.show()

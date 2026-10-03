@@ -1,8 +1,12 @@
 """Live Microsoft Flight Simulator 2020/2024 link via SimConnect (Windows only).
 
-Uses the `SimConnect` PyPI package (Python-SimConnect). If the package or MSFS
-is missing, the provider reports a clear status instead of crashing, and keeps
+Uses the `SimConnect` PyPI package (Python-SimConnect). If the package or MSFS is
+missing, the provider reports a clear status instead of crashing, and keeps
 retrying so you can start MSFS after SkyDispatch.
+
+Units (verified against the library's variable table): angles come back in
+radians, altitude in feet, speeds in knots, vertical speed in feet/minute,
+fuel in gallons.
 """
 from __future__ import annotations
 
@@ -15,27 +19,20 @@ from .base import SimProvider, SimState
 
 log = logging.getLogger(__name__)
 
-# Each tuple: (SimVar name, attribute) read every cycle.
-_VARS = {
-    "lat": "PLANE_LATITUDE",
-    "lon": "PLANE_LONGITUDE",
-    "alt_msl": "PLANE_ALTITUDE",
-    "alt_agl": "PLANE_ALT_ABOVE_GROUND",
-    "ias": "AIRSPEED_INDICATED",
-    "gs": "GROUND_VELOCITY",
-    "vs": "VERTICAL_SPEED",
-    "heading": "PLANE_HEADING_DEGREES_MAGNETIC",
-    "pitch": "PLANE_PITCH_DEGREES",
-    "bank": "PLANE_BANK_DEGREES",
-    "g_force": "G_FORCE",
-    "on_ground": "SIM_ON_GROUND",
-    "fuel_gal": "FUEL_TOTAL_QUANTITY",
-    "parking_brake": "BRAKE_PARKING_POSITION",
-    "gear": "GEAR_HANDLE_POSITION",
-    "flaps": "FLAPS_HANDLE_PERCENT",
-    "engine": "GENERAL_ENG_COMBUSTION:1",
-    "title": "TITLE",
+# SimState attribute -> SimVar. "slow" values change rarely and are refreshed about once a second.
+_FAST = {
+    "lat": "PLANE_LATITUDE", "lon": "PLANE_LONGITUDE", "alt_msl": "PLANE_ALTITUDE",
+    "alt_agl": "PLANE_ALT_ABOVE_GROUND", "ias": "AIRSPEED_INDICATED", "gs": "GROUND_VELOCITY",
+    "vs": "VERTICAL_SPEED", "g_force": "G_FORCE", "on_ground": "SIM_ON_GROUND",
 }
+_SLOW = {
+    "heading": "PLANE_HEADING_DEGREES_MAGNETIC", "pitch": "PLANE_PITCH_DEGREES", "bank": "PLANE_BANK_DEGREES",
+    "fuel_gal": "FUEL_TOTAL_QUANTITY", "parking_brake": "BRAKE_PARKING_POSITION", "gear": "GEAR_HANDLE_POSITION",
+    "flaps": "FLAPS_HANDLE_PERCENT", "engine": "GENERAL_ENG_COMBUSTION:1", "paused": "SIM_DISABLED",
+}
+FAST_SAMPLE_AGL_FT = 250.0          # below this (and airborne) sample at 10 Hz so touchdown rate is accurate
+FAST_PERIOD_S = 0.1
+SLOW_REFRESH_S = 1.0
 
 
 def simconnect_available() -> bool:
@@ -51,12 +48,21 @@ def simconnect_available() -> bool:
 class SimConnectProvider(SimProvider):
     name = "simconnect"
 
+    def __init__(self, sample_hz: float = 2.0):
+        super().__init__(sample_hz)
+        self._slow: dict[str, float] = {}
+        self._slow_at = 0.0
+        self._title = ""
+        self._touch_prev: float | None = None
+        self._touch_until = 0.0
+        self._touch_fpm: float | None = None
+
     def _run(self) -> None:
         if sys.platform != "win32":
             self._set_status("error", "SimConnect only works on Windows. Use the network bridge instead.")
             return
         try:
-            from SimConnect import AircraftRequests, SimConnect
+            from SimConnect import AircraftRequests, Request, SimConnect
         except Exception as exc:
             self._set_status("error", f"SimConnect Python package not installed ({exc}). "
                                       "Install with: pip install SimConnect")
@@ -66,17 +72,21 @@ class SimConnectProvider(SimProvider):
             self._set_status("connecting", "Waiting for Microsoft Flight Simulator...")
             try:
                 sm = SimConnect()
-                aq = AircraftRequests(sm, _time=250)
+                aq = AircraftRequests(sm, _time=60)
+                touch = Request((b"PLANE TOUCHDOWN NORMAL VELOCITY", b"Feet per second"), sm, _time=60,
+                                _dec="touchdown velocity")
             except Exception:
                 self._sleep(4.0)
                 continue
             self._set_status("connected", "Connected to MSFS")
+            self._slow_at = 0.0
             failures = 0
-            period = 1.0 / self.sample_hz
             while not self._stop.is_set():
                 started = time.time()
+                last = self._latest
+                fast = bool(last and not last.on_ground and last.alt_agl < FAST_SAMPLE_AGL_FT)
                 try:
-                    state = self._read(aq)
+                    state = self._read(aq, touch, refresh_slow=not fast or started - self._slow_at > SLOW_REFRESH_S)
                     failures = 0
                     if state is not None:
                         self._emit(state)
@@ -85,7 +95,8 @@ class SimConnectProvider(SimProvider):
                     log.debug("SimConnect read failed: %s", exc)
                     if failures > 10:
                         break
-                self._sleep(max(0.05, period - (time.time() - started)))
+                period = FAST_PERIOD_S if fast else 1.0 / self.sample_hz
+                self._sleep(max(0.02, period - (time.time() - started)))
             try:
                 sm.exit()
             except Exception:
@@ -95,38 +106,42 @@ class SimConnectProvider(SimProvider):
                 self._sleep(3.0)
 
     @staticmethod
-    def _num(aq, name: str, default: float = 0.0) -> float:
-        value = aq.get(name)
-        if value is None:
-            return default
+    def _num(value, default: float = 0.0) -> float:
         try:
-            return float(value)
+            return default if value is None else float(value)
         except (TypeError, ValueError):
             return default
 
-    def _read(self, aq) -> SimState | None:
-        n = lambda key, d=0.0: self._num(aq, _VARS[key], d)  # noqa: E731
-        lat = aq.get(_VARS["lat"])
+    def _read(self, aq, touch_req, refresh_slow: bool) -> SimState | None:
+        n = self._num
+        lat = aq.get(_FAST["lat"])
         if lat is None:
             return None
-        title = aq.get(_VARS["title"])
-        if isinstance(title, bytes):
-            title = title.decode("utf-8", "ignore")
-        heading = n("heading")
-        if abs(heading) <= 2 * math.pi + 0.01:    # MSFS reports radians for angle SimVars in some builds
-            heading = math.degrees(heading)
-        touch = None
+        now = time.time()
+        f = {k: n(aq.get(v), 1.0 if k == "g_force" else 0.0) for k, v in _FAST.items() if k != "lat"}
+        if refresh_slow:
+            self._slow = {k: n(aq.get(v), 0.0) for k, v in _SLOW.items()}
+            title = aq.get("TITLE")
+            self._title = title.decode("utf-8", "ignore") if isinstance(title, bytes) else str(title or self._title)
+            self._slow_at = now
+        s = self._slow
+        # Landing rate straight from the sim when it updates (value only changes at each touchdown).
         try:
-            tv = aq.get("PLANE_TOUCHDOWN_NORMAL_VELOCITY")
-            if tv:
-                touch = -abs(float(tv)) * 60.0   # ft/s -> fpm (down = negative)
+            tv = touch_req.value
+            if tv is not None:
+                tv = float(tv)
+                if self._touch_prev is not None and tv != self._touch_prev and tv != 0.0:
+                    self._touch_fpm = -abs(tv) * 60.0
+                    self._touch_until = now + 2.0
+                self._touch_prev = tv
         except Exception:
             pass
+        touch = self._touch_fpm if now < self._touch_until else None
         return SimState(
-            timestamp=time.time(), lat=float(lat), lon=n("lon"), alt_msl=n("alt_msl"), alt_agl=n("alt_agl"),
-            ias=n("ias"), gs=n("gs"), vs=n("vs"), heading=heading % 360,
-            pitch=n("pitch"), bank=n("bank"), g_force=n("g_force", 1.0),
-            on_ground=bool(n("on_ground", 1)), fuel_gal=n("fuel_gal"),
-            parking_brake=bool(n("parking_brake")), gear_down=n("gear", 1) > 0.5, flaps=n("flaps"),
-            engine_running=bool(n("engine")), title=str(title or ""), touchdown_fpm=touch,
-        )
+            timestamp=now, lat=float(lat), lon=f["lon"], alt_msl=f["alt_msl"], alt_agl=f["alt_agl"], ias=f["ias"],
+            gs=f["gs"], vs=f["vs"], heading=math.degrees(s.get("heading", 0.0)) % 360,
+            pitch=math.degrees(s.get("pitch", 0.0)), bank=math.degrees(s.get("bank", 0.0)), g_force=f["g_force"],
+            on_ground=bool(f["on_ground"]), engine_running=bool(s.get("engine", 0.0)),
+            parking_brake=bool(s.get("parking_brake", 0.0)), gear_down=s.get("gear", 1.0) > 0.5,
+            flaps=s.get("flaps", 0.0) * 100.0, fuel_gal=s.get("fuel_gal", 0.0),
+            sim_paused=bool(s.get("paused", 0.0)), title=self._title, touchdown_fpm=touch)

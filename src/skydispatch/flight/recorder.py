@@ -111,6 +111,7 @@ class FlightRecorder:
             return
         self._update_metrics(s, dt)
         self._update_phase(s, dt)
+        self._refine_touchdown(s)
         self._sample(s)
         self._check_arrival(s)
         self._last = s
@@ -268,6 +269,12 @@ class FlightRecorder:
                 self.phase = "takeoff"
             elif self.phase == "takeoff" and s.gs < 25:
                 self.phase = "taxi_out"
+
+    def _refine_touchdown(self, s: SimState) -> None:
+        """The sim's own touchdown rate may arrive a sample or two after the wheels touch: prefer it."""
+        if (self.landings and self._landed_at is not None and s.touchdown_fpm is not None
+                and self.t - self._landed_at <= 3.0 and s.on_ground):
+            self.landing_fpm = s.touchdown_fpm
 
     def _sample(self, s: SimState) -> None:
         if self.t >= self._next_sample_t:

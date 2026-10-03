@@ -36,6 +36,18 @@ def piper_paths(voice: str) -> tuple[Path, Path]:
     return models_dir() / f"{voice}.onnx", models_dir() / f"{voice}.onnx.json"
 
 
+DEFAULT_PIPER_VOICE = "en_GB-alan-medium"
+
+
+def resolve_piper_voice(cfg: VoiceSettings, persona_voice: str = "") -> str:
+    """Explicit setting wins; otherwise the persona's voice if downloaded; otherwise the default voice."""
+    if cfg.piper_model:
+        return cfg.piper_model
+    if persona_voice and piper_installed(persona_voice):
+        return persona_voice
+    return DEFAULT_PIPER_VOICE
+
+
 def piper_installed(voice: str) -> bool:
     m, c = piper_paths(voice)
     return m.exists() and c.exists()
@@ -76,11 +88,15 @@ class TTSEngine:
 class PiperEngine(TTSEngine):
     name = "piper"
 
-    def __init__(self, cfg: VoiceSettings):
+    def __init__(self, cfg: VoiceSettings, persona_voice: Callable[[], str] = lambda: ""):
         self.cfg = cfg
+        self._persona_voice = persona_voice
         self._voice = None
         self._loaded_name = ""
         self._stop = threading.Event()
+
+    def voice_name(self) -> str:
+        return resolve_piper_voice(self.cfg, self._persona_voice())
 
     def available(self) -> bool:
         try:
@@ -88,14 +104,15 @@ class PiperEngine(TTSEngine):
             import sounddevice  # noqa: F401
         except Exception:
             return False
-        return piper_installed(self.cfg.piper_model)
+        return piper_installed(self.voice_name())
 
     def _load(self):
-        if self._voice is None or self._loaded_name != self.cfg.piper_model:
+        name = self.voice_name()
+        if self._voice is None or self._loaded_name != name:
             from piper import PiperVoice
-            model, cfg = piper_paths(self.cfg.piper_model)
+            model, cfg = piper_paths(name)
             self._voice = PiperVoice.load(str(model), config_path=str(cfg))
-            self._loaded_name = self.cfg.piper_model
+            self._loaded_name = name
         return self._voice
 
     def speak(self, text: str) -> None:
@@ -204,10 +221,11 @@ class SystemEngine(TTSEngine):
 class TTSManager:
     """Non-blocking speech queue with barge-in (stop) support."""
 
-    def __init__(self, cfg: VoiceSettings, voice_hint: str = "",
+    def __init__(self, cfg: VoiceSettings, voice_hint: str = "", persona_voice: str = "",
                  on_start: Callable[[], None] | None = None, on_end: Callable[[], None] | None = None):
         self.cfg = cfg
         self.voice_hint = voice_hint
+        self.persona_voice = persona_voice
         self.on_start, self.on_end = on_start, on_end
         self._q: queue.Queue[str | None] = queue.Queue()
         self._engine: TTSEngine | None = None
@@ -223,7 +241,7 @@ class TTSManager:
                 return self._engine
             candidates: list[TTSEngine] = []
             if want in ("auto", "piper"):
-                candidates.append(PiperEngine(self.cfg))
+                candidates.append(PiperEngine(self.cfg, lambda: self.persona_voice))
             if want in ("auto", "system"):
                 candidates.append(SystemEngine(self.cfg, self.voice_hint))
             for c in candidates:

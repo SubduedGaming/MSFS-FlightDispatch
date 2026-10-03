@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=SkyDispatch
+GenericName=MSFS Career Dispatcher
+Comment=Career mode add-on for Microsoft Flight Simulator with an AI dispatcher
+Exec=skydispatch
+Icon=skydispatch
+Terminal=false
+Categories=Game;Simulation;
+Keywords=flight;simulator;msfs;dispatcher;career;
+StartupNotify=true

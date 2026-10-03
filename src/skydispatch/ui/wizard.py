@@ -185,7 +185,9 @@ class VoicePage(QWizardPage):
         lay.addStretch(1)
 
     def _download(self) -> None:
-        voice = self.ctx.settings.voice.piper_model
+        from ..ai.personas import get_persona
+        voice = tts_mod.resolve_piper_voice(self.ctx.settings.voice, "") if self.ctx.settings.voice.piper_model \
+            else get_persona(self.ctx.settings.ai.persona).piper_voice
         self.dl.setEnabled(False)
         self.bar.show()
         from PySide6.QtCore import QObject, Signal
