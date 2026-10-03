@@ -116,7 +116,7 @@ class SimulatedProvider(SimProvider):
             self._advance(s, p, s.gs, dt)
             remaining = geo.distance_nm(s.lat, s.lon, p["lat"], p["lon"])
             # Begin descent so we arrive at the field after ~ (alt/500fpm) minutes.
-            descent_nm = max(4.0, (s.alt_msl - p["elev"]) / 500.0 * (s.gs / 60.0))
+            descent_nm = max(4.0, (s.alt_msl - p["elev"]) / 500.0 * (max(70.0, (s.ias + 70.0) / 2) / 60.0))
             if s.alt_msl >= self.cruise_alt:
                 p["phase"] = "cruise"
             elif remaining <= descent_nm:
@@ -128,23 +128,28 @@ class SimulatedProvider(SimProvider):
             s.g_force = 1.0 + self.rng.uniform(-0.03, 0.03)
             self._advance(s, p, s.gs, dt)
             remaining = geo.distance_nm(s.lat, s.lon, p["lat"], p["lon"])
-            descent_nm = max(4.0, (s.alt_msl - p["elev"]) / 500.0 * (s.gs / 60.0))
+            descent_nm = max(4.0, (s.alt_msl - p["elev"]) / 500.0 * (max(70.0, (s.ias + 70.0) / 2) / 60.0))
             if remaining <= descent_nm:
                 p["phase"] = "descent"
         elif ph == "descent":
-            s.vs = -500.0
+            remaining = geo.distance_nm(s.lat, s.lon, p["lat"], p["lon"])
             s.ias = max(70.0, s.ias - 0.5 * dt)
             s.gs = s.ias
+            # Choose the sink rate that arrives over the runway threshold at ground level.
+            minutes_left = max(0.2, remaining / max(s.gs, 30.0) * 60.0)
+            s.vs = -max(200.0, min(1500.0, s.alt_agl / minutes_left))
             s.alt_msl += s.vs / 60.0 * dt
             s.alt_agl = max(0.0, s.alt_msl - p["elev"])
             self._advance(s, p, s.gs, dt)
-            if s.alt_agl <= 15 or geo.distance_nm(s.lat, s.lon, p["lat"], p["lon"]) < 0.2:
+            remaining = geo.distance_nm(s.lat, s.lon, p["lat"], p["lon"])
+            if s.alt_agl <= 15 or remaining < 0.15:
                 s.alt_msl, s.alt_agl = p["elev"], 0.0
                 s.on_ground = True
                 s.touchdown_fpm = self.landing_fpm
                 s.vs = self.landing_fpm
                 s.g_force = 1.0 + min(1.5, abs(self.landing_fpm) / 400.0)
-                s.lat, s.lon = p["lat"], p["lon"]
+                if remaining < 1.5:
+                    s.lat, s.lon = p["lat"], p["lon"]
                 p["phase"], p["t"] = "rollout", 0.0
         elif ph == "rollout":
             p["t"] += dt

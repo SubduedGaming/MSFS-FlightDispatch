@@ -195,7 +195,7 @@ class FlightRecorder:
         if self._last:
             d = geo.distance_nm(self._last.lat, self._last.lon, s.lat, s.lon)
             plausible = max(1.0, s.gs * dt / 3600.0 * 4 + 0.5) if dt > 0 else 1.0
-            if d > plausible and d > 3.0:
+            if d > plausible and d > 3.0 and not (s.on_ground and self._last.on_ground and d < 10.0):
                 self.slews += 1
                 self._emit("slew", f"Position jumped {d:.1f} nm - slew/teleport detected", dist=d)
             else:

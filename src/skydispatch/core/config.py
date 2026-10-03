@@ -9,7 +9,7 @@ import json
 import logging
 import os
 import tempfile
-from dataclasses import asdict, dataclass, field, fields, is_dataclass
+from dataclasses import MISSING, asdict, dataclass, field, fields, is_dataclass
 from pathlib import Path
 from typing import Any
 
@@ -144,7 +144,7 @@ def _build(cls, data: dict[str, Any]):
         if f.name not in data:
             continue
         value = data[f.name]
-        default = f.default_factory() if f.default_factory is not field else f.default  # type: ignore
+        default = f.default_factory() if f.default_factory is not MISSING else f.default
         if is_dataclass(default) and isinstance(value, dict):
             kwargs[f.name] = _build(type(default), value)
         elif isinstance(default, bool):
