@@ -134,7 +134,8 @@ class PiperEngine(TTSEngine):
             return
         audio = np.frombuffer(b"".join(chunks), dtype=np.int16).astype(np.float32) / 32768.0
         audio *= max(0.0, min(1.0, self.cfg.tts_volume))
-        dev = self.cfg.output_device or None
+        from .stt import resolve_device
+        dev = resolve_device(self.cfg.output_device, "output")
         sd.play(audio, int(rate / max(0.5, self.cfg.tts_rate)), device=dev)
         while sd.get_stream().active and not self._stop.is_set():
             self._stop.wait(0.05)

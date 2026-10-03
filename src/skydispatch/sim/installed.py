@@ -74,6 +74,8 @@ def scan_packages(root: Path) -> set[str]:
     """Catalog ids of aircraft found in one packages folder."""
     found: set[str] = set()
     bases = [root / "Community", root / "Official" / "OneStore", root / "Official" / "Steam", root / "Official"]
+    if not _has_packages(root):
+        bases = [root]                                  # the user pointed straight at a folder of packages
     seen: set[Path] = set()
     for base in bases:
         if not base.is_dir():
@@ -102,26 +104,83 @@ def scan_packages(root: Path) -> set[str]:
     return found
 
 
-def detect_installed(custom_path: str = "") -> set[str] | None:
-    """Scan this computer for MSFS aircraft. None = no MSFS install found (nothing to restrict by)."""
-    roots: list[Path] = []
+_CONTAINERS = {"community", "official", "onestore", "steam"}
+
+
+def default_roots() -> list[Path]:
+    """Well-known packages folders of MSFS 2020 and 2024 (Store and Steam), whether or not UserCfg.opt names them."""
+    out: list[Path] = []
+    local, roaming = os.environ.get("LOCALAPPDATA"), os.environ.get("APPDATA")
+    if local:
+        for pkg in ("Microsoft.FlightSimulator_8wekyb3d8bbwe", "Microsoft.Limitless_8wekyb3d8bbwe"):
+            out.append(Path(local) / "Packages" / pkg / "LocalCache" / "Packages")
+    if roaming:
+        for name in ("Microsoft Flight Simulator", "Microsoft Flight Simulator 2024"):
+            out.append(Path(roaming) / name / "Packages")
+    return out
+
+
+def normalise_root(path: Path) -> list[Path]:
+    """Accept whatever the user (or UserCfg.opt) points at and return the folders worth scanning.
+
+    That may be the folder holding Community/Official, its parent (Packages lives inside), or the Community or
+    Official folder itself."""
+    out: list[Path] = []
+    if path.name.lower() in _CONTAINERS:
+        out.append(path.parent)
+        if path.name.lower() == "onestore" or path.name.lower() == "steam":
+            out.append(path.parent.parent)
+    out += [path, path / "Packages"]
+    seen: list[Path] = []
+    for p in out:
+        if p.is_dir() and p not in seen:
+            seen.append(p)
+    return seen
+
+
+def candidate_roots(custom_path: str = "") -> list[Path]:
+    """Every folder we would scan, in priority order, without duplicates."""
+    raw: list[Path] = []
     if custom_path:
-        roots.append(Path(custom_path))
+        raw.append(Path(custom_path.strip().strip('"')))
     if os.environ.get("MSFS_PACKAGES_PATH"):
-        roots.append(Path(os.environ["MSFS_PACKAGES_PATH"]))
+        raw.append(Path(os.environ["MSFS_PACKAGES_PATH"]))
     if sys.platform == "win32":
         for cfg in userconfig_candidates():
             r = packages_path_from_usercfg(cfg) if cfg.exists() else None
             if r:
-                roots.append(r)
-    roots = [r for r in roots if r.is_dir()]
+                raw.append(r)
+        raw += default_roots()
+    roots: list[Path] = []
+    for r in raw:
+        for n in normalise_root(r):
+            if n not in roots:
+                roots.append(n)
+    return roots
+
+
+def _has_packages(root: Path) -> bool:
+    return any((root / n).is_dir() for n in ("Community", "Official"))
+
+
+def detect_installed(custom_path: str = "") -> set[str] | None:
+    """Scan this computer for MSFS aircraft. None = no MSFS install found (nothing to restrict by)."""
+    roots = [r for r in candidate_roots(custom_path) if _has_packages(r) or r == Path(custom_path or "?")]
     if not roots:
+        log.info("No MSFS packages folder found. Looked in: %s", [str(r) for r in candidate_roots(custom_path)])
         return None
     found: set[str] = set()
     for r in roots:
         found |= scan_packages(r)
-    log.info("Detected %d installed catalog aircraft: %s", len(found), sorted(found))
+    log.info("Scanned %s: detected %d installed catalog aircraft: %s", [str(r) for r in roots], len(found),
+             sorted(found))
     return found
+
+
+def searched_locations(custom_path: str = "") -> str:
+    """Human-readable list of where detection looks, for messages when nothing is found."""
+    places = [str(r) for r in candidate_roots(custom_path)] or ["(no MSFS folders found on this computer)"]
+    return "; ".join(places[:6])
 
 
 # ---------------------------------------------------------------- settings helpers

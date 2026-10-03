@@ -2,7 +2,7 @@
 from __future__ import annotations
 import sys
 
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QFormLayout, QLabel, QLineEdit, QProgressBar, QPushButton, QRadioButton,
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QProgressBar, QPushButton, QRadioButton,
                                QVBoxLayout, QWidget, QWizard, QWizardPage, QSpinBox)
 
 from ..ai.llm import LMStudioClient
@@ -10,7 +10,7 @@ from ..ai.personas import PERSONAS
 from ..core.config import AISettings
 from ..data.aircraft import STARTER_IDS, get_type
 from ..pilot.quals import EXPERIENCE_PRESETS, apply_experience_preset
-from ..sim.installed import installed_types, parse_ids
+from ..sim.installed import detect_installed, installed_types, parse_ids, searched_locations
 from ..sim.simconnect_provider import simconnect_available
 from ..voice import tts as tts_mod
 from ..voice.stt import stt_available
@@ -122,6 +122,14 @@ class SimPage(QWizardPage):
         lay.addWidget(self.share)
         lay.addWidget(_note("MSFS must be running for a live connection; SkyDispatch keeps retrying, so you can "
                             "start it later. You can switch modes any time in Settings > Simulator."))
+        path_row = QHBoxLayout()
+        self.pkg_path = QLineEdit(ctx.settings.sim.packages_path)
+        self.pkg_path.setPlaceholderText("MSFS packages folder (only if you moved it; leave blank to auto-detect)")
+        browse = QPushButton("Browse...")
+        browse.clicked.connect(self._browse)
+        path_row.addWidget(self.pkg_path, 1)
+        path_row.addWidget(browse)
+        lay.addLayout(path_row)
         self.detect_btn = QPushButton("Detect aircraft installed in my simulator")
         self.detect_btn.clicked.connect(self._detect)
         self.detect_lbl = _note("Jobs only use aircraft you have installed. Detection reads your MSFS install on this "
@@ -132,19 +140,29 @@ class SimPage(QWizardPage):
         self.r_bridge.toggled.connect(self.form_widget.setVisible)
         self.form_widget.setVisible(False)
 
+    def _browse(self) -> None:
+        path = QFileDialog.getExistingDirectory(
+            self, "Your MSFS packages folder (the one containing Community and Official)")
+        if path:
+            self.pkg_path.setText(path)
+            self._detect()
+
     def _detect(self) -> None:
         self.detect_lbl.setText("Looking for MSFS...")
-        path = self.ctx.settings.sim.packages_path
+        path = self.pkg_path.text().strip()
+        self.ctx.settings.sim.packages_path = path
 
         def done(found):
             if found is None:
-                self.detect_lbl.setText("No MSFS install found on this computer. That's fine: all aircraft will be "
-                                        "used until you choose or connect to your Windows PC.")
+                self.detect_lbl.setText("No MSFS packages folder found (looked in: " + searched_locations(path) +
+                                        "). Use Browse if you installed MSFS elsewhere. Until then all aircraft are used.")
+            elif not found:
+                self.detect_lbl.setText("Found an MSFS folder but no supported aircraft in it. Check that you chose the "
+                                        "folder containing Community and Official.")
             else:
                 self.ctx.settings.sim.installed_aircraft = ",".join(sorted(found))
                 self.ctx.settings.sim.installed_auto = True
                 self.detect_lbl.setText(f"Found {len(found)} supported aircraft installed.")
-        from ..sim.installed import detect_installed
         run_async(lambda: detect_installed(path), done, lambda e: self.detect_lbl.setText(f"Detection failed: {e}"),
                   owner=self)
 
@@ -318,6 +336,7 @@ class SetupWizard(QWizard):
         s.ui.currency = self.pilot.currency.currentData()
         if self.sim.detect_lbl.text().startswith("Found"):
             s.sim.installed_aircraft = ",".join(sorted(parse_ids(s.sim.installed_aircraft)))
+        s.sim.packages_path = self.sim.pkg_path.text().strip()
         s.sim.mode = self.sim.mode()
         s.sim.bridge_host = self.sim.host.text().strip() or "127.0.0.1"
         s.sim.bridge_port = self.sim.port.value()

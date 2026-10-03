@@ -55,3 +55,25 @@ def test_piper_voice_resolution(monkeypatch):
     assert tts.resolve_piper_voice(s.voice, "en_US-amy-medium") == "en_US-amy-medium"
     s.voice.piper_model = "en_US-ryan-medium"                                               # explicit choice wins
     assert tts.resolve_piper_voice(s.voice, "en_US-amy-medium") == "en_US-ryan-medium"
+
+
+def test_device_name_listed_under_several_host_apis_resolves(monkeypatch):
+    import sys
+    import types
+
+    from skydispatch.voice import stt
+
+    devices = [
+        {"name": "Mic (Headset)", "max_input_channels": 1, "max_output_channels": 0, "hostapi": 1},   # WASAPI
+        {"name": "Mic (Headset)", "max_input_channels": 1, "max_output_channels": 0, "hostapi": 0},   # MME
+        {"name": "Speakers", "max_input_channels": 0, "max_output_channels": 2, "hostapi": 0},
+    ]
+    fake = types.SimpleNamespace(
+        query_devices=lambda: devices,
+        query_hostapis=lambda i=None: [{"name": "MME"}, {"name": "WASAPI"}] if i is None else {"name": "MME"},
+        default=types.SimpleNamespace(hostapi=0))
+    monkeypatch.setitem(sys.modules, "sounddevice", fake)
+    assert stt.list_input_devices() == ["Mic (Headset)"]               # de-duplicated
+    assert stt.resolve_device("Mic (Headset)", "input") == 1           # the default API's copy (MME)
+    assert stt.resolve_device("Unplugged", "input") is None
+    assert stt.resolve_device("", "output") is None

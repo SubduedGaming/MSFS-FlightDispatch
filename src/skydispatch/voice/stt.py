@@ -27,20 +27,53 @@ def stt_available() -> tuple[bool, str]:
     return True, "Speech recognition ready"
 
 
-def list_input_devices() -> list[str]:
+def _devices(kind: str) -> list[tuple[int, dict]]:
+    """(index, info) for devices that can do input/output, with the default host API's devices first.
+
+    Windows lists every physical device once per audio API (MME, DirectSound, WASAPI, WDM-KS), so a bare
+    device name is ambiguous. The default API is the safest (it resamples), so it wins."""
+    import sounddevice as sd
+    key = f"max_{kind}_channels"
+    devs = [(i, d) for i, d in enumerate(sd.query_devices()) if d.get(key, 0) > 0]
     try:
-        import sounddevice as sd
-        return [d["name"] for d in sd.query_devices() if d.get("max_input_channels", 0) > 0]
+        default_api = sd.query_hostapis(sd.default.hostapi)["name"] if sd.default.hostapi >= 0 else ""
+        apis = {i: a["name"] for i, a in enumerate(sd.query_hostapis())}
+    except Exception:
+        return devs
+    devs.sort(key=lambda t: (apis.get(t[1].get("hostapi"), "") != default_api, t[0]))
+    return devs
+
+
+def _names(kind: str) -> list[str]:
+    try:
+        seen: list[str] = []
+        for _, d in _devices(kind):
+            if d["name"] not in seen:
+                seen.append(d["name"])
+        return seen
     except Exception:
         return []
+
+
+def resolve_device(name: str, kind: str):
+    """Turn a saved device name into a sounddevice index (None = system default)."""
+    if not name:
+        return None
+    try:
+        for i, d in _devices(kind):
+            if d["name"] == name:
+                return i
+    except Exception:
+        pass
+    return None            # unplugged or renamed: fall back to the default rather than failing
+
+
+def list_input_devices() -> list[str]:
+    return _names("input")
 
 
 def list_output_devices() -> list[str]:
-    try:
-        import sounddevice as sd
-        return [d["name"] for d in sd.query_devices() if d.get("max_output_channels", 0) > 0]
-    except Exception:
-        return []
+    return _names("output")
 
 
 class MicRecorder:
@@ -71,7 +104,7 @@ class MicRecorder:
                 self._frames.append(chunk)
 
         self._stream = sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32",
-                                      device=self.cfg.input_device or None, callback=cb)
+                                      device=resolve_device(self.cfg.input_device, "input"), callback=cb)
         self._stream.start()
 
     def stop(self):
