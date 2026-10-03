@@ -66,6 +66,7 @@ class SimProvider(abc.ABC):
         self._stop = threading.Event()
         self._latest: SimState | None = None
         self.status = "disconnected"
+        self.installed: list[str] | None = None   # catalog ids installed in the sim, when the provider knows
 
     # -- public ---------------------------------------------------------
     def start(self) -> None:

@@ -8,6 +8,8 @@ from ..ai.llm import LMStudioClient
 from ..ai.personas import PERSONAS
 from ..core.config import AISettings
 from ..data.aircraft import STARTER_IDS, get_type
+from ..pilot.quals import EXPERIENCE_PRESETS, apply_experience_preset
+from ..sim.installed import installed_types, parse_ids
 from ..sim.simconnect_provider import simconnect_available
 from ..voice import tts as tts_mod
 from ..voice.stt import stt_available
@@ -58,11 +60,17 @@ class PilotPage(QWizardPage):
         self.currency = QComboBox()
         for c in ("$", "£", "€", "¥"):
             self.currency.addItem(c, c)
+        self.experience = QComboBox()
+        for pid, (label, _h, _skill, _cats) in EXPERIENCE_PRESETS.items():
+            self.experience.addItem(label, pid)
+        self.experience.setToolTip("Your flying experience so far. It decides which companies on the job board "
+                                   "will take you on. You can start at the bottom and work up.")
         f.addRow("Pilot name:", self.name)
         f.addRow("Callsign:", self.callsign)
         f.addRow("Home airport (ICAO):", self.home)
         f.addRow("", self.home_info)
         f.addRow("Currency:", self.currency)
+        f.addRow("Flying experience:", self.experience)
         self.home.textChanged.connect(self._lookup)
         self.registerField("pilot_name*", self.name)
         self._lookup()
@@ -111,9 +119,31 @@ class SimPage(QWizardPage):
         lay.addWidget(self.form_widget)
         lay.addWidget(_note("MSFS must be running for a live connection; SkyDispatch keeps retrying, so you can "
                             "start it later. You can switch modes any time in Settings > Simulator."))
+        self.detect_btn = QPushButton("Detect aircraft installed in my simulator")
+        self.detect_btn.clicked.connect(self._detect)
+        self.detect_lbl = _note("Jobs only use aircraft you have installed. Detection reads your MSFS install on this "
+                                "computer; with a Bridge it comes from the Windows PC. You can also choose in Settings.")
+        lay.addWidget(self.detect_btn)
+        lay.addWidget(self.detect_lbl)
         lay.addStretch(1)
         self.r_bridge.toggled.connect(self.form_widget.setVisible)
         self.form_widget.setVisible(False)
+
+    def _detect(self) -> None:
+        self.detect_lbl.setText("Looking for MSFS...")
+        path = self.ctx.settings.sim.packages_path
+
+        def done(found):
+            if found is None:
+                self.detect_lbl.setText("No MSFS install found on this computer. That's fine: all aircraft will be "
+                                        "used until you choose or connect a Bridge.")
+            else:
+                self.ctx.settings.sim.installed_aircraft = ",".join(sorted(found))
+                self.ctx.settings.sim.installed_auto = True
+                self.detect_lbl.setText(f"Found {len(found)} supported aircraft installed.")
+        from ..sim.installed import detect_installed
+        run_async(lambda: detect_installed(path), done, lambda e: self.detect_lbl.setText(f"Detection failed: {e}"),
+                  owner=self)
 
     def mode(self) -> str:
         return "bridge" if self.r_bridge.isChecked() else "simconnect" if self.r_msfs.isChecked() else "simulated"
@@ -230,6 +260,18 @@ class AircraftPage(QWizardPage):
         lay.addLayout(f)
         lay.addStretch(1)
 
+    def initializePage(self) -> None:
+        """Only starter aircraft that are installed in the sim can be chosen (when we know what is installed)."""
+        installed = installed_types(self.ctx.settings, self.ctx.db)
+        usable = [r for r in self.group if installed is None or r.property("type_id") in installed]
+        for r in self.group:
+            ok = (not usable) or r in usable
+            r.setEnabled(ok)
+            if not ok:
+                r.setText(r.text() + "  (not installed)")
+        if usable and not any(r.isChecked() and r.isEnabled() for r in self.group):
+            usable[0].setChecked(True)
+
     def type_id(self) -> str:
         return next((r.property("type_id") for r in self.group if r.isChecked()), STARTER_IDS[1])
 
@@ -271,6 +313,8 @@ class SetupWizard(QWizard):
         s.pilot.callsign = self.pilot.callsign.text().strip().upper() or "SKY1"
         s.pilot.home_icao = self.pilot.home.text().strip().upper()
         s.ui.currency = self.pilot.currency.currentData()
+        if self.sim.detect_lbl.text().startswith("Found"):
+            s.sim.installed_aircraft = ",".join(sorted(parse_ids(s.sim.installed_aircraft)))
         s.sim.mode = self.sim.mode()
         s.sim.bridge_host = self.sim.host.text().strip() or "127.0.0.1"
         s.sim.bridge_port = self.sim.port.value()
@@ -284,6 +328,7 @@ class SetupWizard(QWizard):
         s.ui.first_run_complete = True
         self.ctx.career.start_career(s.pilot.name, s.pilot.callsign, s.pilot.home_icao,
                                      self.aircraft.type_id(), s.game.start_balance)
+        apply_experience_preset(self.ctx.db, self.pilot.experience.currentData())
         self.ctx.db.clear_messages()
         self.ctx.apply_settings()
         self.ctx.start_sim()

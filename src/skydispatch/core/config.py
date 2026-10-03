@@ -35,6 +35,11 @@ class SimSettings:
     # Bridge server (runs on the Windows PC next to MSFS)
     sample_hz: float = 2.0
     simulated_speed: float = 8.0  # time acceleration for demo mode
+    # Aircraft installed in the player's sim (comma-separated catalog ids; empty = unknown, don't restrict)
+    restrict_to_installed: bool = True
+    installed_aircraft: str = ""
+    installed_auto: bool = True       # refresh the list automatically; manual edits switch this off
+    packages_path: str = ""           # custom MSFS packages folder (the one containing Community/ and Official/)
 
 
 @dataclass
@@ -48,6 +53,9 @@ class AISettings:
     # "native" = OpenAI tool calling, "prompt" = text protocol (works with any model)
     tool_mode: str = "auto"
     persona: str = "marcus"
+    copilot: str = "sam"
+    copilot_enabled: bool = True
+    copilot_callouts: bool = True     # proactive callouts (positive rate, top of descent, sink rate, ...)
     ai_job_flavour: bool = True       # let the LLM write job briefings
     proactive_comms: bool = True      # dispatcher comments on flight events
 
@@ -78,6 +86,7 @@ class GameSettings:
     job_count: int = 12
     start_balance: float = 25000.0
     max_job_distance_nm: float = 1500.0
+    recency_half_life_days: int = 45   # recent experience halves after this many days without flying
 
 
 @dataclass

@@ -42,10 +42,12 @@ _alive: set[_Task] = set()
 
 
 def run_async(fn: Callable[[], Any], on_done: Callable[[Any], None] | None = None,
-              on_error: Callable[[str], None] | None = None, owner: QObject | None = None) -> None:
-    """Execute `fn` in the thread pool; callbacks run on the UI thread.
+              on_error: Callable[[str], None] | None = None, owner: QObject | None = None,
+              pool: QThreadPool | None = None) -> None:
+    """Execute `fn` in a thread pool; callbacks run on the UI thread.
 
-    Pass `owner` (a QObject living on the UI thread) so callbacks are queued to it.
+    Pass `owner` (a QObject living on the UI thread) so callbacks are queued to it. Pass a single-thread `pool`
+    when tasks must complete in the order they were started (e.g. a conversation).
     """
     task = _Task(fn)
     _alive.add(task)
@@ -59,4 +61,4 @@ def run_async(fn: Callable[[], Any], on_done: Callable[[Any], None] | None = Non
 
     task.signals.done.connect(finish(on_done))
     task.signals.failed.connect(finish(on_error))
-    QThreadPool.globalInstance().start(task)
+    (pool or QThreadPool.globalInstance()).start(task)

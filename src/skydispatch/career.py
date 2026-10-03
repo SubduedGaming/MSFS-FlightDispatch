@@ -12,6 +12,10 @@ from typing import Any, Callable
 
 from .core.config import Settings
 from .data.aircraft import AircraftType, get_type, match_title
+from .data.employers import Employer, get_employer
+from .pilot import quals as quals_mod
+from .sim.installed import is_installed
+from .jobs.employer_jobs import EmployerDispatch, usable_fleet
 from .db.database import Database, now_iso
 from .db.models import Airport, HangarAircraft, Job
 from .flight.recorder import FlightRecorder, Live
@@ -40,6 +44,17 @@ class Settlement:
     costs: float
     notes: list[str]
     arrival: str
+    employer_id: str | None = None
+    skill_before: float = 0.0
+    skill_after: float = 0.0
+
+
+@dataclass
+class ApplicationResult:
+    employer: Employer
+    accepted: bool
+    checks: list
+    message: str
 
 
 class Career:
@@ -48,6 +63,7 @@ class Career:
         self.settings = settings
         self.hangar = HangarService(db)
         self.jobs = JobGenerator(db, settings)
+        self.employer_dispatch = EmployerDispatch(db, settings)
         self._listeners: list[Listener] = []
         self._lock = threading.RLock()
         self.recorder: FlightRecorder | None = None
@@ -102,10 +118,13 @@ class Career:
             if not ok:
                 e.ok = False
                 e.reasons.append(why)
+            if not is_installed(a.type_id, self.settings, self.db):
+                e.ok = False
+                e.reasons.append(f"{t.name} is not installed in your simulator")
             out.append((a, e))
         return out
 
-    def accept_job(self, job_id: int, aircraft_id: int) -> Job:
+    def accept_job(self, job_id: int, aircraft_id: int | None = None) -> Job:
         with self._lock:
             pilot = self.db.pilot()
             job = self.db.job(job_id)
@@ -117,19 +136,36 @@ class Career:
                 raise CareerError("Finish or abandon your current job first")
             if self.recorder and self.recorder.started and not self.recorder.finished:
                 raise CareerError("Finish your current flight before accepting a job")
-            if pilot.reputation < job.min_reputation:
-                raise CareerError(f"Requires reputation {job.min_reputation:.0f} (you have {pilot.reputation:.0f})")
-            aircraft = self.db.aircraft(aircraft_id)
-            if not aircraft or aircraft.sold:
-                raise CareerError("Pick an aircraft from your hangar")
-            elig = {a.id: e for a, e in self.eligible_aircraft(job)}[aircraft_id]
-            if not elig.ok:
-                raise CareerError("; ".join(elig.reasons))
-            self.db.set_job(job_id, status="accepted", aircraft_id=aircraft_id, accepted_at=now_iso())
+            if job.employer_id:
+                self._check_employer_job(job)
+                self.db.set_job(job_id, status="accepted", aircraft_id=None, accepted_at=now_iso())
+                for other in self.db.jobs("offered", scope=job.employer_id):
+                    if other.id != job_id:
+                        self.db.set_job(other.id, status="expired")
+            else:
+                if pilot.reputation < job.min_reputation:
+                    raise CareerError(f"Requires reputation {job.min_reputation:.0f} (you have {pilot.reputation:.0f})")
+                aircraft = self.db.aircraft(aircraft_id) if aircraft_id else None
+                if not aircraft or aircraft.sold:
+                    raise CareerError("Pick an aircraft from your hangar")
+                elig = {a.id: e for a, e in self.eligible_aircraft(job)}[aircraft_id]
+                if not elig.ok:
+                    raise CareerError("; ".join(elig.reasons))
+                self.db.set_job(job_id, status="accepted", aircraft_id=aircraft_id, accepted_at=now_iso())
             # Other offers stay on the market; only one active job at a time.
             self._arm(self.db.job(job_id))  # type: ignore[arg-type]
             self._fire("job_accepted", job=self.db.job(job_id))
             return self.db.job(job_id)  # type: ignore[return-value]
+
+    def _check_employer_job(self, job: Job) -> None:
+        employer = get_employer(job.employer_id or "")
+        if employer is None or not self.db.is_employed_by(employer.id):
+            raise CareerError("You don't work for that company")
+        t = get_type(job.provided_type)
+        if t is None:
+            raise CareerError("This flight has no aircraft assigned")
+        if not is_installed(t.id, self.settings, self.db):
+            raise CareerError(f"The {t.name} is not installed in your simulator")
 
     def decline_job(self, job_id: int) -> None:
         job = self.db.job(job_id)
@@ -137,6 +173,8 @@ class Career:
             raise CareerError("That job is no longer available")
         self.db.set_job(job_id, status="declined")
         self._fire("job_declined", job=job)
+        if job.employer_id:
+            return
         if len(self.db.jobs("offered")) < self.settings.game.job_count // 2:
             self.refresh_market()
         else:
@@ -171,7 +209,8 @@ class Career:
     def _arm(self, job: Job) -> None:
         self._job = job
         self._aircraft = self.db.aircraft(job.aircraft_id) if job.aircraft_id else None
-        atype = get_type(self._aircraft.type_id) if self._aircraft else None
+        atype = get_type(job.provided_type) if job.employer_id else (
+            get_type(self._aircraft.type_id) if self._aircraft else None)
         self._new_recorder(self.db.airport(job.origin), self.db.airport(job.dest), atype, job.deadline_minutes)
 
     def _new_recorder(self, origin: Airport | None, dest: Airport | None, atype: AircraftType | None,
@@ -220,8 +259,10 @@ class Career:
                 rec.origin = near[0] if near and near[1] < 8 else None
             dep = rec.origin.icao if rec.origin else ""
             aid = self._aircraft.id if self._aircraft else None
-            self._flight_id = self.db.create_flight(self._job.id if self._job else None, aid,
-                                                    rec.sim_title, dep)
+            flown = match_title(rec.sim_title) if rec.sim_title else None
+            type_id = flown.id if flown else (rec.atype.id if rec.atype else "")
+            self._flight_id = self.db.create_flight(self._job.id if self._job else None, aid, rec.sim_title, dep,
+                                                    type_id, self._job.employer_id if self._job else None)
             if self._job:
                 self.db.set_job(self._job.id, status="active")
         if self._flight_id:
@@ -255,8 +296,11 @@ class Career:
                     mult *= 0.8
                     notes.append("Flew a different aircraft than assigned: payout -20%")
             payout = round(job.payout * mult, 2)
-        if atype and m.air_min > 0:
+        employer_id = job.employer_id if job else None
+        if atype and m.air_min > 0 and not employer_id:
             costs = round(atype.hourly_cost * m.air_min / 60.0, 2)
+        elif employer_id and m.air_min > 0:
+            notes.append("Company aircraft: your employer covers fuel and operating costs")
         arrival = rec.arrival.icao if rec.arrival else (job.dest if job and m.outcome == "completed" else "")
         # hangar wear/location
         if aircraft and atype and m.outcome in ("completed", "diverted", "crashed", "aborted"):
@@ -276,9 +320,18 @@ class Career:
             self.db.add_transaction(-costs, "operating", f"Operating cost ({m.air_min / 60:.1f} h)")
         # pilot
         pilot = self.db.pilot()
+        skill_before = skill_after = pilot.skill if pilot else 0.0
         if pilot:
-            self.db.update_pilot(reputation=max(0.0, min(100.0, pilot.reputation + s.reputation_delta)),
-                                 xp=pilot.xp + s.xp, total_minutes=pilot.total_minutes + m.air_min)
+            skill_after = skill_before
+            if m.outcome != "aborted" and m.air_min >= 3:       # flying badly (or crashing) lowers your skill rating
+                skill_after = max(0.0, min(100.0, skill_before * 0.85 + s.score * 0.15))
+            updates = dict(reputation=max(0.0, min(100.0, pilot.reputation + s.reputation_delta)),
+                           xp=pilot.xp + s.xp, total_minutes=pilot.total_minutes + m.air_min, skill=skill_after)
+            if arrival and m.outcome in ("completed", "diverted"):
+                updates["location_icao"] = arrival
+            self.db.update_pilot(**updates)
+        if employer_id and self.db.employment(employer_id):
+            self.db.add_employment_stats(employer_id, m.air_min, payout)
         # job status
         if job:
             self.db.set_job(job.id, status="completed" if m.outcome == "completed" else "failed")
@@ -290,14 +343,66 @@ class Career:
             max_alt_ft=rec.max_alt, overspeed_s=m.overspeed_s, score=s.score, outcome=m.outcome,
             payout=payout, costs=costs, summary=summary)
         self.db.add_telemetry(self._flight_id, rec.samples)
-        self.db.record_aircraft_flown(rec.sim_title, atype.id if atype else None, m.air_min)
-        settlement = Settlement(self._flight_id, job, m, s, payout, costs, notes + s.penalties, arrival)
+        flown = match_title(rec.sim_title) if rec.sim_title else None
+        flown_id = flown.id if flown else (atype.id if atype else None)
+        self.db.record_aircraft_flown(rec.sim_title, flown_id, m.air_min)
+        settlement = Settlement(self._flight_id, job, m, s, payout, costs, notes + s.penalties, arrival,
+                                employer_id, skill_before, skill_after)
         self.last_settlement = settlement
         self._disarm()
         self._fire("flight_finished", settlement=settlement)
         self._fire("pilot_changed")
         self._fire("hangar_changed")
         self._fire("market_changed")
+
+    # ----------------------------------------------------------- qualifications & employers
+    def qualifications(self):
+        return quals_mod.compute(self.db, half_life_days=self.settings.game.recency_half_life_days)
+
+    def employer_fleet_note(self, employer: Employer) -> str | None:
+        """None when the pilot can fly for this company, otherwise why not (aircraft not installed)."""
+        if usable_fleet(employer, self.settings, self.db):
+            return None
+        names = ", ".join(t.name for t in employer.fleet_types())
+        return f"Needs {names} installed in your sim"
+
+    def apply_to_employer(self, employer_id: str) -> ApplicationResult:
+        employer = get_employer(employer_id)
+        if employer is None:
+            raise CareerError("Unknown company")
+        if self.db.is_employed_by(employer_id):
+            raise CareerError(f"You already work for {employer.name}")
+        note = self.employer_fleet_note(employer)
+        if note:
+            raise CareerError(f"{employer.name} can't take you on yet: {note.lower()}.")
+        q = self.qualifications()
+        checks = quals_mod.check_requirements(employer.reqs, q)
+        accepted = all(c.met for c in checks)
+        if accepted:
+            message = (f"Congratulations! {employer.name} is pleased to offer you a position as a pilot. "
+                       f"You'll fly {', '.join(t.name for t in employer.fleet_types())} with a pay rate of "
+                       f"{employer.pay_factor:.0%} of the standard rate, with the company covering fuel and operating costs.")
+        else:
+            short = [f"{c.label}: need {c.required}, you have {c.actual}" for c in checks if not c.met]
+            message = (f"Thank you for applying to {employer.name}. We can't offer you a position yet. "
+                       + "; ".join(short) + ". Please apply again when you meet these requirements.")
+        self.db.add_application(employer_id, "accepted" if accepted else "rejected", message, q.to_json())
+        if accepted:
+            self.db.hire(employer_id)
+        result = ApplicationResult(employer, accepted, checks, message)
+        self._fire("application_result", result=result)
+        if accepted:
+            self._fire("hired", employer=employer)
+        return result
+
+    def resign(self, employer_id: str) -> None:
+        job = self.db.active_job()
+        if job and job.employer_id == employer_id:
+            raise CareerError("Finish or abandon your current flight before resigning")
+        self.db.resign(employer_id)
+        for j in self.db.jobs("offered", scope=employer_id):
+            self.db.set_job(j.id, status="expired")
+        self._fire("employment_changed", employer_id=employer_id)
 
     def flush_telemetry(self) -> None:
         """Persist buffered telemetry (called periodically so a crash loses little)."""

@@ -85,3 +85,19 @@ def test_client_retries_until_server_appears():
         src.stop()
         server.shutdown()
         server.server_close()
+
+
+def test_bridge_reports_installed_aircraft_to_the_client():
+    port = free_port()
+    src = SimulatedProvider(sample_hz=20)
+    server = serve(src, "127.0.0.1", port, "", installed=["c172", "a320"])
+    client = BridgeClientProvider("127.0.0.1", port, "", 20)
+    try:
+        client.start()
+        assert wait(lambda: client.status == "connected")
+        assert client.installed == ["c172", "a320"]
+    finally:
+        client.stop()
+        src.stop()
+        server.shutdown()
+        server.server_close()

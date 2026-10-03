@@ -9,6 +9,7 @@ from ..core.config import Settings
 from ..data.aircraft import AIRLINER, CATALOG, PISTON, TURBOPROP, TWIN, AircraftType, get_type
 from ..db.database import Database, iso_in
 from ..db.models import Airport
+from ..sim.installed import installed_types
 from .pricing import (KIND_LABEL, TIER, TIER_NAME, deadline_minutes, difficulty_multiplier, job_payout)
 
 log = logging.getLogger(__name__)
@@ -81,12 +82,21 @@ class JobGenerator:
         # Source plane: biased towards owned aircraft so jobs are actually flyable.
         plane: AircraftType | None = None
         origin: Airport | None = None
+        # Only aircraft that are installed in the player's sim can be flown, so only they get jobs.
+        installed = installed_types(self.settings, self.db)
+        if installed is not None:
+            fleet = [a for a in fleet if a.type_id in installed]
         if fleet and rng.random() < 0.8:
             owned = rng.choice(fleet)
             plane = get_type(owned.type_id)
             origin = self.db.airport(owned.location_icao)
         if plane is None:
-            plane = rng.choice(CATALOG[:11]) if pilot is None or pilot.reputation < 70 else rng.choice(CATALOG)
+            pool = CATALOG[:11] if pilot is None or pilot.reputation < 70 else CATALOG
+            if installed is not None:
+                pool = [t for t in CATALOG if t.id in installed]
+            if not pool:
+                return False
+            plane = rng.choice(pool)
         if origin is None:
             home = self.db.airport(pilot.home_icao) if pilot else None
             origin = home or rng.choice(airports)

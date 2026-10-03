@@ -75,7 +75,7 @@ class TTSEngine:
     def available(self) -> bool:
         return False
 
-    def speak(self, text: str) -> None:       # blocking
+    def speak(self, text: str, voice: str = "") -> None:       # blocking; `voice` = engine-specific voice id
         raise NotImplementedError
 
     def stop(self) -> None:
@@ -95,8 +95,8 @@ class PiperEngine(TTSEngine):
         self._loaded_name = ""
         self._stop = threading.Event()
 
-    def voice_name(self) -> str:
-        return resolve_piper_voice(self.cfg, self._persona_voice())
+    def voice_name(self, override: str = "") -> str:
+        return resolve_piper_voice(self.cfg, override or self._persona_voice())
 
     def available(self) -> bool:
         try:
@@ -106,8 +106,10 @@ class PiperEngine(TTSEngine):
             return False
         return piper_installed(self.voice_name())
 
-    def _load(self):
-        name = self.voice_name()
+    def _load(self, override: str = ""):
+        name = self.voice_name(override)
+        if override and not piper_installed(name):
+            name = self.voice_name()
         if self._voice is None or self._loaded_name != name:
             from piper import PiperVoice
             model, cfg = piper_paths(name)
@@ -115,11 +117,11 @@ class PiperEngine(TTSEngine):
             self._loaded_name = name
         return self._voice
 
-    def speak(self, text: str) -> None:
+    def speak(self, text: str, voice: str = "") -> None:
         import numpy as np
         import sounddevice as sd
         self._stop.clear()
-        voice = self._load()
+        voice = self._load(voice)
         rate = getattr(getattr(voice, "config", None), "sample_rate", 22050)
         chunks: list[bytes] = []
         if hasattr(voice, "synthesize_stream_raw"):             # piper-tts 1.2
@@ -185,7 +187,7 @@ class SystemEngine(TTSEngine):
     def available(self) -> bool:
         return self._cmd("x") is not None
 
-    def speak(self, text: str) -> None:
+    def speak(self, text: str, voice: str = "") -> None:
         cmd = self._cmd(text)
         if not cmd:
             return
@@ -227,7 +229,7 @@ class TTSManager:
         self.voice_hint = voice_hint
         self.persona_voice = persona_voice
         self.on_start, self.on_end = on_start, on_end
-        self._q: queue.Queue[str | None] = queue.Queue()
+        self._q: queue.Queue[tuple[str, str] | None] = queue.Queue()
         self._engine: TTSEngine | None = None
         self._lock = threading.Lock()
         self._thread = threading.Thread(target=self._worker, daemon=True, name="tts")
@@ -255,12 +257,12 @@ class TTSManager:
         e = self.engine()
         return e.name if e else "none"
 
-    def speak(self, text: str) -> None:
+    def speak(self, text: str, voice: str = "") -> None:
         if not self.cfg.tts_enabled or self.cfg.tts_engine == "none":
             return
         clean = speakable(text)
         if clean:
-            self._q.put(clean)
+            self._q.put((clean, voice))
 
     def stop(self) -> None:
         while not self._q.empty():
@@ -277,9 +279,10 @@ class TTSManager:
 
     def _worker(self) -> None:
         while True:
-            text = self._q.get()
-            if text is None:
+            item = self._q.get()
+            if item is None:
                 return
+            text, voice = item
             engine = self.engine()
             if engine is None:
                 self.last_error = "No text-to-speech engine available"
@@ -287,7 +290,7 @@ class TTSManager:
             try:
                 if self.on_start:
                     self.on_start()
-                engine.speak(text)
+                engine.speak(text, voice)
                 self.last_error = ""
             except Exception as exc:
                 self.last_error = f"{engine.name}: {exc}"

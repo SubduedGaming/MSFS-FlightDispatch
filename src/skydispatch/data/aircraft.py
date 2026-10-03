@@ -32,6 +32,15 @@ class AircraftType:
     fuel_lb_per_gal: float = 6.0   # avgas 6.0, jet-A 6.7
 
     @property
+    def vref_kts(self) -> int:
+        """Typical landing-reference / final-approach speed."""
+        return VREF.get(self.id, int(self.cruise_kts * 0.55))
+
+    @property
+    def pattern_agl_ft(self) -> int:
+        return {PISTON: 1000, TWIN: 1000, TURBOPROP: 1500, JET: 1500, AIRLINER: 1500}[self.category]
+
+    @property
     def fuel_price_per_gal(self) -> float:
         return 5.2 if self.category in (PISTON, TWIN) else 6.1
 
@@ -72,6 +81,10 @@ CATALOG: list[AircraftType] = [
     AircraftType("b78x", "Boeing 787-10 Dreamliner", "Boeing", AIRLINER, 490, 350, 1450.0, 33400, 330, 40000, 7000,
                  338000000, 8000, 9000, 500, ("787", "b78x", "dreamliner"), 6.7),
 ]
+
+VREF = {"c152": 55, "c172": 65, "da40": 70, "sr22": 80, "g36": 75, "dr40": 62, "baron": 85, "da62": 80,
+        "c208": 80, "pc12": 85, "tbm9": 85, "king": 105, "cj4": 105, "a320": 135, "b738": 140, "b748": 155,
+        "b78x": 140}
 
 _BY_ID = {a.id: a for a in CATALOG}
 

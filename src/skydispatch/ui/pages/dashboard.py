@@ -24,9 +24,10 @@ class DashboardPage(Page):
         root.addWidget(self.sub)
 
         tiles = QHBoxLayout()
-        self.t_balance, self.t_rep, self.t_hours, self.t_rank, self.t_fleet = (
-            StatTile("Balance"), StatTile("Reputation"), StatTile("Flight time"), StatTile("Rank"), StatTile("Fleet"))
-        for t in (self.t_balance, self.t_rep, self.t_hours, self.t_rank, self.t_fleet):
+        self.t_balance, self.t_rep, self.t_hours, self.t_recent, self.t_skill, self.t_fleet = (
+            StatTile("Balance"), StatTile("Reputation"), StatTile("Flight time"), StatTile("Recent experience"),
+            StatTile("Skill"), StatTile("Fleet"))
+        for t in (self.t_balance, self.t_rep, self.t_hours, self.t_recent, self.t_skill, self.t_fleet):
             tiles.addWidget(t)
         root.addLayout(tiles)
 
@@ -43,8 +44,8 @@ class DashboardPage(Page):
         self.btn_flight = QPushButton("Open flight tracker")
         self.btn_flight.setObjectName("primary")
         self.btn_flight.clicked.connect(lambda: self.goto.emit("flight"))
-        self.btn_market = QPushButton("Browse job market")
-        self.btn_market.clicked.connect(lambda: self.goto.emit("market"))
+        self.btn_market = QPushButton("Find work")
+        self.btn_market.clicked.connect(lambda: self.goto.emit("jobboard"))
         self.btn_abandon = QPushButton("Abandon")
         self.btn_abandon.setObjectName("danger")
         self.btn_abandon.clicked.connect(self._abandon)
@@ -110,19 +111,26 @@ class DashboardPage(Page):
                              "warn" if pilot.reputation < 40 else None)
         self.t_hours.set_value(fmt.duration(pilot.total_minutes))
         nxt = pilot.next_rank_xp
-        self.t_rank.set_value(pilot.rank)
-        self.t_rank.setToolTip(f"{pilot.xp} XP" + (f" / {nxt} for next rank" if nxt else " (max rank)"))
+        q = self.career.qualifications()
+        self.t_recent.set_value(f"{q.recent_h:.1f} h", "warn" if q.total_h > 5 and q.recent_h < 2 else None)
+        days = q.days_since_last
+        self.t_recent.setToolTip("Recent experience halves every "
+                                 f"{self.settings.game.recency_half_life_days} days without flying. "
+                                 + ("No flights yet." if days is None else f"Last flight: {days:.0f} days ago."))
+        self.t_skill.set_value(pilot.skill_level)
+        self.t_skill.setToolTip(f"Skill rating {pilot.skill:.0f}/100, rank {pilot.rank} ({pilot.xp} XP"
+                                + (f", {nxt} for next rank)" if nxt else ", max rank)"))
         self.t_fleet.set_value(str(len(self.db.hangar())))
         job = self.db.active_job()
         if job:
             self.job_title.setText(f"<b>{job.title}</b>")
             aircraft = self.db.aircraft(job.aircraft_id) if job.aircraft_id else None
+            who = job.client if job.employer_id else (aircraft.registration if aircraft else "no aircraft")
             self.job_info.setText(f"{job.origin} to {job.dest}  |  {fmt.dist(s, job.distance_nm)}  |  "
-                                  f"pays {fmt.money(s, job.payout)}  |  "
-                                  f"{aircraft.registration if aircraft else 'no aircraft'}  |  {job.status}")
+                                  f"pays {fmt.money(s, job.payout)}  |  {who}  |  {job.status}")
         else:
             self.job_title.setText("No active contract")
-            self.job_info.setText("Pick a job from the market and start your engines. "
+            self.job_info.setText("Apply for a job, ask your dispatcher for a flight, or take a freelance contract. "
                                   "Flights without a contract are still logged.")
         for b in (self.btn_flight, self.btn_abandon):
             b.setVisible(job is not None)

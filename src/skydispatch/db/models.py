@@ -25,6 +25,15 @@ class Pilot(_Row):
     total_minutes: float
     created_at: str
     id: int = 1
+    skill: float = 40.0
+    location_icao: str = ""
+
+    @property
+    def skill_level(self) -> str:
+        for threshold, name in SKILL_LEVELS:
+            if self.skill >= threshold:
+                return name
+        return SKILL_LEVELS[-1][1]
 
     @property
     def rank(self) -> str:
@@ -39,6 +48,7 @@ class Pilot(_Row):
         return min(higher) if higher else None
 
 
+SKILL_LEVELS = [(85, "Expert"), (70, "Skilled"), (55, "Competent"), (40, "Developing"), (0, "Novice")]
 RANKS = [(25000, "Chief Pilot"), (10000, "Captain"), (4000, "First Officer"),
          (1500, "Commercial Pilot"), (500, "Private Pilot"), (0, "Student Pilot")]
 
@@ -94,6 +104,8 @@ class Job(_Row):
     created_at: str
     expires_at: str
     accepted_at: str | None = None
+    employer_id: str | None = None
+    provided_type: str = ""
 
 
 @dataclass
@@ -121,3 +133,5 @@ class Flight(_Row):
     costs: float
     summary: str
     debrief: str
+    type_id: str = ""
+    employer_id: str | None = None

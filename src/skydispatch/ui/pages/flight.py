@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QListWidget, QMessageBox, QProgressBar, QPushButton,
-                               QVBoxLayout)
+                               QTabWidget, QVBoxLayout, QWidget)
 
 from ...data.aircraft import get_type
 from ...sim.base import SimState
 from .. import fmt
+from ..copilot_panel import CopilotPanel
 from ..widgets import Card, RouteMap, heading, muted
 from .base import Page
 
@@ -47,11 +48,11 @@ class FlightPage(Page):
         mid = QHBoxLayout()
         mid.setSpacing(14)
         self.map = RouteMap()
-        mid.addWidget(self.map, 3)
+        mid.addWidget(self.map, 2)
         right = QVBoxLayout()
         grid_card = Card()
         grid = QGridLayout()
-        grid.setHorizontalSpacing(24)
+        grid.setHorizontalSpacing(18)
         self.cells: dict[str, QLabel] = {}
         names = [("alt", "Altitude"), ("ias", "IAS"), ("gs", "Ground speed"), ("vs", "Vertical speed"),
                  ("hdg", "Heading"), ("fuel", "Fuel"), ("g", "G-force"), ("dist", "Distance flown")]
@@ -61,17 +62,22 @@ class FlightPage(Page):
             val = QLabel("-")
             val.setObjectName("statValue")
             self.cells[key] = val
-            grid.addWidget(cap, (i // 2) * 2, i % 2)
-            grid.addWidget(val, (i // 2) * 2 + 1, i % 2)
+            grid.addWidget(cap, (i // 4) * 2, i % 4)
+            grid.addWidget(val, (i // 4) * 2 + 1, i % 4)
         grid_card.lay.addLayout(grid)
         right.addWidget(grid_card)
-        ev_card = Card()
-        ev_card.lay.addWidget(heading("Flight log", 2))
+        tabs = QTabWidget()
+        self.copilot = CopilotPanel(ctx)
+        tabs.addTab(self.copilot, "Copilot")
+        log_tab = QWidget()
+        ll = QVBoxLayout(log_tab)
+        ll.setContentsMargins(6, 8, 6, 6)
         self.events = QListWidget()
         self.events.setMinimumHeight(120)
-        ev_card.lay.addWidget(self.events)
-        right.addWidget(ev_card, 1)
-        mid.addLayout(right, 2)
+        ll.addWidget(self.events)
+        tabs.addTab(log_tab, "Flight log")
+        right.addWidget(tabs, 1)
+        mid.addLayout(right, 3)
         root.addLayout(mid, 1)
 
         btns = QHBoxLayout()
@@ -99,6 +105,8 @@ class FlightPage(Page):
         self.link.setText(f"<b>Sim:</b> {txt}{' - ' + message if message else ''}")
 
     def _on_career(self, name: str, payload: dict) -> None:
+        if self.ctx.closed:
+            return
         if name == "flight_event":
             self.events.addItem(f"{payload['kind'].replace('_', ' ').title()}: {payload['detail']}")
             self.events.scrollToBottom()
@@ -119,10 +127,11 @@ class FlightPage(Page):
             self.map.set_route((o.icao, o.lat, o.lon) if o else None, (d.icao, d.lat, d.lon) if d else None)
         if job:
             aircraft = self.db.aircraft(job.aircraft_id) if job.aircraft_id else None
-            t = get_type(aircraft.type_id) if aircraft else None
+            t = get_type(job.provided_type) if job.employer_id else (get_type(aircraft.type_id) if aircraft else None)
+            plane = f"{t.name} (company aircraft)" if job.employer_id and t else \
+                (f"{t.name} {aircraft.registration}" if t and aircraft else "")
             self.job_lbl.setText(f"{job.title}\n{job.origin} to {job.dest}  |  pays "
-                                 f"{fmt.money(self.settings, job.payout)}  |  "
-                                 f"{(t.name + ' ' + aircraft.registration) if t and aircraft else ''}")
+                                 f"{fmt.money(self.settings, job.payout)}  |  {plane}")
         else:
             self.job_lbl.setText("Free flight: no contract. Everything you fly is still logged to your logbook.")
         self.btn_abandon.setVisible(job is not None)
@@ -132,6 +141,8 @@ class FlightPage(Page):
         self.phase_lbl.setText(PHASE_LABEL.get(live.phase if live else "parked", ""))
 
     def _on_state(self, s: SimState) -> None:
+        if self.ctx.closed:
+            return
         live = self.career.live()
         phase = live.phase if live else "parked"
         self.phase_lbl.setText(PHASE_LABEL.get(phase, phase))

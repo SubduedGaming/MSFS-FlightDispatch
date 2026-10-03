@@ -126,4 +126,34 @@ MIGRATIONS: list[str] = [
     );
     CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     """,
+    # 2 -- employers, qualifications, messenger threads ---------------------
+    """
+    ALTER TABLE pilot ADD COLUMN skill REAL NOT NULL DEFAULT 40;
+    ALTER TABLE pilot ADD COLUMN location_icao TEXT NOT NULL DEFAULT '';
+    ALTER TABLE flights ADD COLUMN type_id TEXT NOT NULL DEFAULT '';
+    ALTER TABLE flights ADD COLUMN employer_id TEXT;
+    ALTER TABLE jobs ADD COLUMN employer_id TEXT;
+    ALTER TABLE jobs ADD COLUMN provided_type TEXT NOT NULL DEFAULT '';
+    ALTER TABLE messages ADD COLUMN thread TEXT NOT NULL DEFAULT 'general';
+    ALTER TABLE messages ADD COLUMN kind TEXT NOT NULL DEFAULT 'text';
+    ALTER TABLE messages ADD COLUMN payload TEXT NOT NULL DEFAULT '';
+    CREATE INDEX idx_msg_thread ON messages(thread, id);
+    UPDATE pilot SET location_icao = home_icao WHERE location_icao = '';
+    CREATE TABLE employment (
+        employer_id TEXT PRIMARY KEY,
+        hired_at TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active',
+        flights INTEGER NOT NULL DEFAULT 0,
+        minutes REAL NOT NULL DEFAULT 0,
+        earned REAL NOT NULL DEFAULT 0
+    );
+    CREATE TABLE applications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        employer_id TEXT NOT NULL,
+        applied_at TEXT NOT NULL,
+        status TEXT NOT NULL,
+        message TEXT NOT NULL DEFAULT '',
+        snapshot TEXT NOT NULL DEFAULT ''
+    );
+    """,
 ]

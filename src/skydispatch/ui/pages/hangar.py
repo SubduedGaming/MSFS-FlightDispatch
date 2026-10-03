@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QDialog, QDialogBut
                                QTabWidget, QVBoxLayout, QWidget)
 
 from ...data.aircraft import CATALOG, get_type
+from ...sim.installed import installed_types
 from ...hangar.service import (HangarError, airworthiness, inspection_cost, repair_cost, resale_value)
 from .. import fmt
 from ..widgets import Card, heading, muted
@@ -21,7 +22,12 @@ class DealerDialog(QDialog):
         self.resize(820, 520)
         lay = QVBoxLayout(self)
         lay.addWidget(heading("Aircraft dealer"))
-        self.table = QTableWidget(len(CATALOG), 7)
+        installed = installed_types(ctx.settings, ctx.db)
+        self._catalog = [t for t in CATALOG if installed is None or t.id in installed]
+        if installed is not None:
+            lay.addWidget(muted("Showing only aircraft installed in your simulator, since jobs can only use those. "
+                                "Change this in Settings > Simulator."))
+        self.table = QTableWidget(len(self._catalog), 7)
         self.table.setHorizontalHeaderLabels(["Aircraft", "Class", "Seats", "Cargo", "Range", "Cruise", "Price"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
@@ -30,7 +36,7 @@ class DealerDialog(QDialog):
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
         s = ctx.settings
-        for r, t in enumerate(CATALOG):
+        for r, t in enumerate(self._catalog):
             vals = [t.name, t.category, str(t.pax), fmt.weight(s, t.cargo_lb), fmt.dist(s, t.range_nm),
                     f"{t.cruise_kts} kt", fmt.money(s, t.price)]
             for c, v in enumerate(vals):
@@ -64,7 +70,7 @@ class DealerDialog(QDialog):
         if row < 0:
             self.msg.setText("Select an aircraft first.")
             return
-        t = CATALOG[row]
+        t = self._catalog[row]
         used = bool(self.cond.currentData())
         price = round(t.price * (0.7 if used else 1.0), -2)
         if QMessageBox.question(self, "Confirm purchase",

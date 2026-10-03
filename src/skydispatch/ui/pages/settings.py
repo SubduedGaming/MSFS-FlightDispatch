@@ -15,6 +15,8 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog
 
 from ...ai.llm import LMStudioClient
 from ...ai.personas import PERSONAS
+from ...copilot.personas import COPILOTS
+from ...sim.installed import parse_ids
 from ...core import paths
 from ...core.config import AISettings
 from ...sim.simconnect_provider import simconnect_available
@@ -22,6 +24,7 @@ from ...voice import stt as stt_mod
 from ...voice import tts as tts_mod
 from ...voice.hotkey import hotkey_available
 from ..widgets import heading, muted
+from ..dialogs import InstalledAircraftDialog
 from ..workers import run_async
 from .base import Page
 
@@ -88,6 +91,7 @@ class SettingsPage(Page):
         bar.addWidget(save)
         root.addLayout(bar)
         self.progress.connect(lambda f: self.dl_bar.setValue(int(f * 100)))
+        ctx.settings_changed.connect(self._update_installed_label)
         self.refresh()
 
     # --------------------------------------------------------- binding helper
@@ -121,6 +125,7 @@ class SettingsPage(Page):
                 w.setText(str(v))
         self.saved.setText("")
         self._update_sim_visibility()
+        self._update_installed_label()
 
     def save(self) -> None:
         old_sim = (self.settings.sim.mode, self.settings.sim.bridge_host, self.settings.sim.bridge_port,
@@ -223,8 +228,61 @@ class SettingsPage(Page):
             "(included in the Windows installer, or run 'skydispatch-bridge --token YOURSECRET'), then choose "
             "'Bridge' here with that PC's address."))
         self.ctx.sim_status.connect(lambda st, msg: self.sim_status.setText(f"{st}: {msg}"))
+        g2 = QGroupBox("Aircraft installed in your simulator")
+        f2 = QFormLayout(g2)
+        f2.addRow(self._bind(QCheckBox("Only give me jobs and company flights in aircraft I have installed"), "sim",
+                             "restrict_to_installed"))
+        self.installed_lbl = QLabel("")
+        self.installed_lbl.setWordWrap(True)
+        f2.addRow(self.installed_lbl)
+        path_row = QHBoxLayout()
+        path_row.addWidget(self._bind(QLineEdit(), "sim", "packages_path"), 1)
+        browse = QPushButton("Browse...")
+        browse.clicked.connect(self._browse_packages)
+        path_row.addWidget(browse)
+        f2.addRow("MSFS packages folder (optional):", path_row)
+        btns = QHBoxLayout()
+        detect = QPushButton("Detect installed aircraft")
+        detect.clicked.connect(self._detect_installed)
+        manual = QPushButton("Choose manually...")
+        manual.clicked.connect(self._choose_installed)
+        btns.addWidget(detect)
+        btns.addWidget(manual)
+        btns.addStretch(1)
+        f2.addRow(btns)
+        lay.addWidget(g2)
+        lay.addWidget(muted("Detection reads your MSFS packages folder (Community and Official). With a Bridge, the "
+                            "Windows PC reports what it has installed. Aircraft you have flown also count as installed."))
         lay.addStretch(1)
         return w
+
+    def _browse_packages(self) -> None:
+        path = QFileDialog.getExistingDirectory(self, "MSFS packages folder (contains Community and Official)")
+        if path:
+            self.settings.sim.packages_path = path
+            self.refresh()
+
+    def _detect_installed(self) -> None:
+        for w, sec, field in self._bindings:           # take the typed path without requiring Save first
+            if (sec, field) == ("sim", "packages_path"):
+                self.settings.sim.packages_path = w.text().strip()
+        self.settings.sim.installed_auto = True
+        self.ctx.detect_installed(force=True)
+
+    def _choose_installed(self) -> None:
+        InstalledAircraftDialog(self.ctx, self).exec()
+        self.refresh()
+
+    def _update_installed_label(self) -> None:
+        ids = parse_ids(self.settings.sim.installed_aircraft)
+        if not ids:
+            text = "Installed aircraft: unknown, so jobs are not restricted."
+        else:
+            from ...data.aircraft import get_type
+            names = ", ".join(get_type(i).name for i in sorted(ids) if get_type(i))
+            text = f"Installed aircraft ({len(ids)}): {names}"
+        mode = "detected automatically" if self.settings.sim.installed_auto else "chosen manually"
+        self.installed_lbl.setText(text + (f"  [{mode}]" if ids else ""))
 
     def _update_sim_visibility(self) -> None:
         mode = self.sim_mode.currentData()
@@ -279,6 +337,11 @@ class SettingsPage(Page):
         self.persona_combo = self._bind(_combo([(f"{p.name} - {p.title}", p.id) for p in PERSONAS.values()]),
                                         "ai", "persona")
         f2.addRow("Dispatcher:", self.persona_combo)
+        f2.addRow("Copilot:", self._bind(_combo([(f"{p.name} - {p.title}", p.id) for p in COPILOTS.values()]),
+                                         "ai", "copilot"))
+        f2.addRow(self._bind(QCheckBox("Enable the copilot (ask for advice during flights)"), "ai", "copilot_enabled"))
+        f2.addRow(self._bind(QCheckBox("Copilot callouts: positive rate, top of descent, approach, sink rate, fuel"),
+                             "ai", "copilot_callouts"))
         f2.addRow(self._bind(QCheckBox("Dispatcher comments on my flight (takeoff, landing, warnings)"), "ai",
                              "proactive_comms"))
         f2.addRow(self._bind(QCheckBox("Let the AI write contract descriptions"), "ai", "ai_job_flavour"))
@@ -477,6 +540,10 @@ class SettingsPage(Page):
         md.setRange(100, 9000)
         md.setSuffix(" nm")
         f.addRow("Longest job distance:", md)
+        hl = self._bind(QSpinBox(), "game", "recency_half_life_days")
+        hl.setRange(7, 365)
+        hl.setSuffix(" days")
+        f.addRow("Recent experience halves after:", hl)
         lay.addWidget(g)
         lay.addWidget(muted("Difficulty and fleet settings take effect on newly generated contracts and the next flight."))
         lay.addStretch(1)
