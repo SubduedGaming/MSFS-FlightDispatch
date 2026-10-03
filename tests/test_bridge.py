@@ -3,7 +3,7 @@ import time
 
 from skydispatch.sim.base import SimState
 from skydispatch.sim.bridge import BridgeClientProvider
-from skydispatch.sim.bridge_server import serve
+from skydispatch.sim.bridge_server import BridgeHost, local_addresses, serve
 from skydispatch.sim.simulated import SimulatedProvider
 
 
@@ -44,8 +44,7 @@ def test_bridge_streams_state_with_token():
     finally:
         client.stop()
         src.stop()
-        server.shutdown()
-        server.server_close()
+        server.stop()
 
 
 def test_bridge_rejects_bad_token():
@@ -64,8 +63,7 @@ def test_bridge_rejects_bad_token():
     finally:
         client.stop()
         src.stop()
-        server.shutdown()
-        server.server_close()
+        server.stop()
 
 
 def test_client_retries_until_server_appears():
@@ -83,8 +81,7 @@ def test_client_retries_until_server_appears():
     finally:
         client.stop()
         src.stop()
-        server.shutdown()
-        server.server_close()
+        server.stop()
 
 
 def test_bridge_reports_installed_aircraft_to_the_client():
@@ -99,5 +96,70 @@ def test_bridge_reports_installed_aircraft_to_the_client():
     finally:
         client.stop()
         src.stop()
-        server.shutdown()
-        server.server_close()
+        server.stop()
+
+
+def test_app_context_shares_to_a_remote_client(qtbot):
+    from skydispatch.core.config import Settings
+    from skydispatch.db.database import Database
+    from skydispatch.ui.context import AppContext
+
+    port = free_port()
+    settings = Settings()
+    settings.sim.mode = "simulated"
+    settings.sim.share_enabled = True
+    settings.sim.share_port = port
+    settings.sim.installed_aircraft = "c172,da40"
+    ctx = AppContext(settings, Database())
+    client = BridgeClientProvider("127.0.0.1", port, "", 20)
+    got = []
+    try:
+        ctx.start_sim()
+        assert ctx.share_host is not None and settings.sim.share_token      # token auto-generated
+        client.token = settings.sim.share_token
+        client.on_state = got.append
+        client.start()
+        assert wait(lambda: len(got) > 3)
+        assert client.installed == ["c172", "da40"]
+        # switching sharing off stops the host
+        settings.sim.share_enabled = False
+        ctx.start_sim()
+        assert ctx.share_host is None
+    finally:
+        client.stop()
+        ctx.shutdown()
+
+
+def test_share_is_skipped_in_client_mode(qtbot):
+    from skydispatch.core.config import Settings
+    from skydispatch.db.database import Database
+    from skydispatch.ui.context import AppContext
+
+    settings = Settings()
+    settings.sim.share_enabled = True
+    settings.sim.mode = "bridge"
+    ctx = AppContext(settings, Database())
+    try:
+        ctx.start_share()
+        assert ctx.share_host is None
+    finally:
+        ctx.shutdown()
+
+
+def test_host_rejects_wrong_token_and_lists_addresses():
+    port = free_port()
+    host = BridgeHost("127.0.0.1", port, "right")
+    host.start()
+    bad = BridgeClientProvider("127.0.0.1", port, "wrong", 20)
+    statuses = []
+    bad.on_status = lambda st, msg: statuses.append(st)
+    try:
+        bad.start()
+        assert wait(lambda: "error" in statuses)
+        assert host.client_count == 0
+        with __import__("pytest").raises(OSError):
+            BridgeHost("127.0.0.1", port, "x").start()          # port already in use
+    finally:
+        bad.stop()
+        host.stop()
+    assert isinstance(local_addresses(), list)

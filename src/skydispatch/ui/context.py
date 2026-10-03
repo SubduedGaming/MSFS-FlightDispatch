@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import secrets
 import time
 from pathlib import Path
 
@@ -17,8 +18,9 @@ from ..core.config import Settings
 from ..core.paths import database_path
 from ..db.database import Database
 from ..sim.base import SimProvider, SimState
+from ..sim.bridge_server import BridgeHost
 from ..sim.factory import make_provider
-from ..sim.installed import detect_installed, format_ids
+from ..sim.installed import detect_installed, format_ids, parse_ids
 from ..sim.simulated import SimulatedProvider
 from ..voice.service import VoiceService
 from .workers import run_async
@@ -48,6 +50,8 @@ class AppContext(QObject):
         self.voice = VoiceService(settings, persona.system_voice_hint, persona.piper_voice)
         self.provider: SimProvider | None = None
         self.sim_connected = False
+        self.share_host: BridgeHost | None = None
+        self.share_error = ""
         self.closed = False
         self._pending: dict[str, int] = {}
         # Dispatcher comments, debriefs and follow-up questions must appear in the order things happened.
@@ -75,6 +79,7 @@ class AppContext(QObject):
         self.closed = True
         self._timer.stop()
         self.stop_sim()
+        self.stop_share()
         QThreadPool.globalInstance().waitForDone(1500)     # let in-flight background tasks finish before the DB closes
         self._ai_pool.waitForDone(1500)
         self.career.flush_telemetry()
@@ -97,8 +102,9 @@ class AppContext(QObject):
     def start_sim(self) -> None:
         self.stop_sim()
         self.provider = make_provider(self.settings.sim)
-        self.provider.on_state = lambda s: self.sim_state.emit(s)
+        self.provider.on_state = self._provider_state
         self.provider.on_status = self._on_status
+        self.start_share()
         self.provider.start()
         if self.settings.sim.installed_auto:
             self.detect_installed()
@@ -111,7 +117,42 @@ class AppContext(QObject):
             self.provider = None
         self.sim_connected = False
 
+    def _provider_state(self, state: SimState) -> None:
+        host = self.share_host
+        if host:
+            host.publish_state(state)
+        self.sim_state.emit(state)
+
+    # -------------------------------------------------------------- sharing
+    def start_share(self) -> None:
+        """Let SkyDispatch on other computers connect to this one (MSFS runs here, so this is the host)."""
+        self.stop_share()
+        sim = self.settings.sim
+        if not sim.share_enabled or sim.mode == "bridge":
+            return
+        if not sim.share_token:
+            sim.share_token = secrets.token_urlsafe(12)
+            self.settings.save()
+        host = BridgeHost("0.0.0.0", sim.share_port, sim.share_token,
+                          installed=lambda: sorted(parse_ids(self.settings.sim.installed_aircraft)))
+        try:
+            host.start()
+        except OSError as e:
+            self.share_error = f"Could not share on port {sim.share_port}: {e}"
+            log.warning(self.share_error)
+            self.toast.emit("warn", self.share_error)
+            return
+        self.share_error = ""
+        self.share_host = host
+
+    def stop_share(self) -> None:
+        if self.share_host:
+            self.share_host.stop()
+            self.share_host = None
+
     def _on_status(self, status: str, message: str) -> None:
+        if self.share_host:
+            self.share_host.publish_status(status, message)
         self.sim_connected = status == "connected"
         self.sim_status.emit(status, message)
         if status == "connected" and self.provider and self.provider.installed is not None \

@@ -38,18 +38,15 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Components]
 Name: "main"; Description: "SkyDispatch application"; Types: full compact custom; Flags: fixed
-Name: "bridge"; Description: "SkyDispatch Bridge (streams MSFS data to SkyDispatch on another computer)"; Types: full
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Shortcuts:"
 
 [Files]
 Source: "..\..\dist\SkyDispatch\*"; DestDir: "{app}"; Components: main; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "..\..\dist\SkyDispatch-Bridge\*"; DestDir: "{app}\bridge"; Components: bridge; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExe}"
-Name: "{group}\SkyDispatch Bridge"; Filename: "{app}\bridge\SkyDispatch-Bridge.exe"; Parameters: "--port 8765"; Components: bridge
 Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
 

@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+- **Sharing is built into the Windows app** (Settings > Simulator). The separate SkyDispatch Bridge is no longer
+  installed; Mac/Linux connect to the Windows PC running MSFS. The `skydispatch-bridge` command remains for headless use.
+- Fix: the Windows build now bundles SimConnect.dll, so live MSFS data works from the installer.
 - **Job Board:** ten companies on a career ladder. Applications are decided on total time, recent experience, skill
   level and hours on the company's aircraft class, with a requirement checklist and an application history.
 - **Recent experience** decays with every day without flying (45-day half-life, configurable). Skill rating follows

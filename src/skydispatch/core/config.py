@@ -32,7 +32,10 @@ class SimSettings:
     bridge_host: str = "127.0.0.1"
     bridge_port: int = 8765
     bridge_token: str = ""
-    # Bridge server (runs on the Windows PC next to MSFS)
+    # Sharing (the Windows app next to MSFS lets SkyDispatch on other computers connect to it)
+    share_enabled: bool = False
+    share_port: int = 8765
+    share_token: str = ""
     sample_hz: float = 2.0
     simulated_speed: float = 8.0  # time acceleration for demo mode
     # Aircraft installed in the player's sim (comma-separated catalog ids; empty = unknown, don't restrict)
