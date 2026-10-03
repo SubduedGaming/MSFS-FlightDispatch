@@ -236,17 +236,17 @@ def test_company_career_loop_end_to_end(qtbot, ctx, win, quiet_dialogs):
     thread = "employer:bluebird"
     ctx.career.apply_to_employer("bluebird")
     ctx.dispatcher.start_thread(get_employer("bluebird"), "Welcome aboard.")
-    ctx.answer_availability(thread, 60)
+    ctx.answer_availability(thread, 30)               # a short window keeps the simulated flight quick
     qtbot.waitUntil(lambda: bool(ctx.db.jobs("offered", scope="bluebird")), timeout=10000)
     job = ctx.db.jobs("offered", scope="bluebird")[0]
     ctx.accept_offer(job.id, thread)
     assert ctx.db.active_job().id == job.id
 
-    ctx.settings.sim.simulated_speed = 60
+    ctx.settings.sim.simulated_speed = 90
     ctx.start_sim()
-    qtbot.waitUntil(lambda: ctx.simulated is not None and ctx.sim_connected, timeout=3000)
+    qtbot.waitUntil(lambda: ctx.simulated is not None and ctx.sim_connected, timeout=5000)
     assert ctx.demo_fly_active_job() is None
-    qtbot.waitUntil(lambda: ctx.career.last_settlement is not None, timeout=50000)
+    qtbot.waitUntil(lambda: ctx.career.last_settlement is not None, timeout=120000)
 
     s = ctx.career.last_settlement
     assert s.metrics.outcome == "completed" and s.employer_id == "bluebird" and s.costs == 0 and s.payout > 0

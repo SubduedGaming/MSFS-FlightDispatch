@@ -165,7 +165,7 @@ class MainWindow(QMainWindow):
         for key in ("logbook", "hangar", "market", "dashboard", "finance", "jobboard"):
             if self.stack.currentWidget() is not self.pages[key]:
                 if hasattr(self.pages[key], "refresh"):
-                    QTimer.singleShot(0, self.pages[key].refresh)
+                    QTimer.singleShot(0, self.pages[key].refresh)       # refresh() ignores calls after shutdown
         self._pending_refresh.start()
 
     def _update_balance(self) -> None:

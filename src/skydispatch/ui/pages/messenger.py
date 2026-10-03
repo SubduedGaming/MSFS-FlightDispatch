@@ -117,6 +117,8 @@ class MessengerPage(Page):
         return name, preview
 
     def _rebuild_threads(self) -> None:
+        if self.ctx.closed:
+            return
         ids = self._thread_ids()
         if self.thread not in ids:
             self.thread = GENERAL
@@ -160,6 +162,8 @@ class MessengerPage(Page):
         self._render()
 
     def _render(self) -> None:
+        if self.ctx.closed:
+            return
         d = self.ctx.dispatcher
         thread = self.thread
         name = d.display_name(thread)

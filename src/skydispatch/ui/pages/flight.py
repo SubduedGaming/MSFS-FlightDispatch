@@ -105,6 +105,8 @@ class FlightPage(Page):
         self.link.setText(f"<b>Sim:</b> {txt}{' - ' + message if message else ''}")
 
     def _on_career(self, name: str, payload: dict) -> None:
+        if self.ctx.closed:
+            return
         if name == "flight_event":
             self.events.addItem(f"{payload['kind'].replace('_', ' ').title()}: {payload['detail']}")
             self.events.scrollToBottom()
@@ -139,6 +141,8 @@ class FlightPage(Page):
         self.phase_lbl.setText(PHASE_LABEL.get(live.phase if live else "parked", ""))
 
     def _on_state(self, s: SimState) -> None:
+        if self.ctx.closed:
+            return
         live = self.career.live()
         phase = live.phase if live else "parked"
         self.phase_lbl.setText(PHASE_LABEL.get(phase, phase))

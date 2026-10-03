@@ -89,6 +89,8 @@ class CopilotPanel(QWidget):
         self._render()
 
     def _render(self) -> None:
+        if self.ctx.closed:
+            return
         p = get_copilot(self.ctx.settings.ai.copilot)
         self.view.set_messages(self.ctx.db.messages(60, THREAD), p.name, self._busy)
 
