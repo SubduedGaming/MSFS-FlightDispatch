@@ -1,7 +1,7 @@
 ; Inno Setup 6 script: GUI installer + uninstaller for SkyDispatch (Windows 10/11, 64-bit).
-; Build: ISCC /DAppVersion=1.1.2 packaging\windows\skydispatch.iss   (or: python packaging/build.py)
+; Build: ISCC /DAppVersion=1.2.0 packaging\windows\skydispatch.iss   (or: python packaging/build.py)
 #ifndef AppVersion
-  #define AppVersion "1.1.2"
+  #define AppVersion "1.2.0"
 #endif
 #define AppName "SkyDispatch"
 #define AppExe "SkyDispatch.exe"
@@ -52,8 +52,15 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopico
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
+; An in-app update runs silently (/UPDATING=1): start the app again afterwards.
+Filename: "{app}\{#AppExe}"; Flags: nowait; Check: IsUpdate
 
 [Code]
+function IsUpdate: Boolean;
+begin
+  Result := ExpandConstant('{param:UPDATING|0}') = '1';
+end;
+
 // Career data lives in %LOCALAPPDATA%\SkyDispatch. Keep it by default so reinstalling never loses a career.
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var

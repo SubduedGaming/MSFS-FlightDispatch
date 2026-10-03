@@ -7,15 +7,19 @@ import sys
 from pathlib import Path
 
 from PySide6 import __version__ as pyside_version
+from PySide6.QtCore import QUrl, Signal
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout, QLabel, QMessageBox,
-                               QPushButton, QTextBrowser, QVBoxLayout)
+                               QProgressBar, QPushButton, QTextBrowser, QVBoxLayout)
 
 from .. import APP_NAME, __version__
 from ..core import paths
 from ..data.aircraft import CATALOG
 from ..sim.installed import format_ids, parse_ids
+from .. import updater
 from . import fmt
 from .widgets import heading, muted
+from .workers import run_async
 
 
 class AboutDialog(QDialog):
@@ -41,6 +45,80 @@ class AboutDialog(QDialog):
         bb = QDialogButtonBox(QDialogButtonBox.Close)
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)
+
+
+class UpdateDialog(QDialog):
+    """Shows a newer release and installs it (Windows) or opens its download page."""
+    progress = Signal(int, int)
+    quit_for_update = Signal()
+
+    def __init__(self, ctx, info, parent=None):
+        super().__init__(parent)
+        self.ctx, self.info = ctx, info
+        self.setWindowTitle("Update available")
+        self.setMinimumWidth(520)
+        lay = QVBoxLayout(self)
+        lay.addWidget(heading(f"SkyDispatch {info.version} is available"))
+        lay.addWidget(muted(f"You have version {__version__}. Your career data is kept when you update."))
+        notes = QTextBrowser()
+        notes.setMaximumHeight(200)
+        notes.setPlainText(info.notes.strip() or "No release notes.")
+        lay.addWidget(notes)
+        self.bar = QProgressBar()
+        self.bar.setRange(0, 100)
+        self.bar.hide()
+        self.status = muted("")
+        lay.addWidget(self.bar)
+        lay.addWidget(self.status)
+        row = QHBoxLayout()
+        self.install_btn = QPushButton("Download and install" if info.installable else "Open download page")
+        self.install_btn.setObjectName("primary")
+        self.install_btn.clicked.connect(self._install if info.installable else self._open_page)
+        later = QPushButton("Later")
+        later.clicked.connect(self.reject)
+        page = QPushButton("Release page")
+        page.clicked.connect(self._open_page)
+        row.addWidget(page)
+        row.addStretch(1)
+        row.addWidget(later)
+        row.addWidget(self.install_btn)
+        lay.addLayout(row)
+        self.progress.connect(self._on_progress)
+
+    def _open_page(self) -> None:
+        QDesktopServices.openUrl(QUrl(self.info.page_url))
+
+    def _on_progress(self, done: int, total: int) -> None:
+        if total:
+            self.bar.setValue(int(done * 100 / total))
+            self.status.setText(f"Downloading... {done / 1e6:.0f} of {total / 1e6:.0f} MB")
+
+    def _install(self) -> None:
+        rec = self.ctx.career.recorder
+        if rec and rec.started and not rec.finished:
+            QMessageBox.information(self, "Flight in progress",
+                                    "Finish or abandon your current flight first; the app closes during the update.")
+            return
+        self.install_btn.setEnabled(False)
+        self.bar.show()
+        self.status.setText("Downloading...")
+        run_async(lambda: updater.download(self.info, lambda d, t: self.progress.emit(d, t)),
+                  self._downloaded, self._failed, owner=self.ctx)
+
+    def _failed(self, err: str) -> None:
+        self.install_btn.setEnabled(True)
+        self.bar.hide()
+        self.status.setText(err)
+
+    def _downloaded(self, path) -> None:
+        self.status.setText("Starting the installer. SkyDispatch will close and reopen.")
+        try:
+            updater.launch_installer(path)
+        except Exception as exc:
+            self._failed(str(exc))
+            return
+        self.accept()
+        self.quit_for_update.emit()
 
 
 class FlightResultDialog(QDialog):

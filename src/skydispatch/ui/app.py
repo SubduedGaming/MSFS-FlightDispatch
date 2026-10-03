@@ -94,6 +94,8 @@ def run(argv: list[str] | None = None) -> int:
     else:
         ctx.start_sim()
         ctx.check_ai()
+    ctx.start_web()
+    ctx.check_for_updates()
     win.goto("dashboard")
     code = app.exec()
     lock.unlock()

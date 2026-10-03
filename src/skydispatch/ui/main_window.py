@@ -13,7 +13,7 @@ from ..core import paths
 from ..voice.hotkey import GlobalPushToTalk, hotkey_available
 from . import fmt, theme
 from .context import AppContext
-from .dialogs import AboutDialog, FlightResultDialog, UninstallDialog
+from .dialogs import AboutDialog, FlightResultDialog, UninstallDialog, UpdateDialog
 from .pages.dashboard import DashboardPage
 from .pages.finance import FinancePage
 from .pages.flight import FlightPage
@@ -100,6 +100,8 @@ class MainWindow(QMainWindow):
         ctx.sim_status.connect(self._sim_status)
         ctx.ai_status.connect(self._ai_status)
         ctx.career_event.connect(self._career_event)
+        ctx.update_available.connect(self._update_found)
+        self._update_dlg = None
         self._sim_status(ctx.provider.status if ctx.provider else "disconnected", "")
         self._ai_status(False, "") if ctx.dispatcher.online is False else self.ai_dot.set_state("off", "AI: not checked")
 
@@ -208,7 +210,29 @@ class MainWindow(QMainWindow):
         h = mb.addMenu("&Help")
         h.addAction(self._act("Open log folder", lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(paths.log_dir())))))
         h.addAction(self._act("Uninstall SkyDispatch...", lambda: UninstallDialog(self).exec()))
+        h.addAction(self._act("Check for updates...", self.check_updates_now))
         h.addAction(self._act(f"About {APP_NAME}", lambda: AboutDialog(self.ctx, self).exec()))
+
+    # --------------------------------------------------------------- updates
+    def check_updates_now(self) -> None:
+        if self.ctx.update_info:
+            self._show_update(self.ctx.update_info)
+        else:
+            self.ctx.check_for_updates(manual=True)
+
+    def _update_found(self, info) -> None:
+        rec = self.ctx.career.recorder
+        if rec and rec.started and not rec.finished:
+            self.ctx.toast.emit("info", f"SkyDispatch {info.version} is available (Help > Check for updates).")
+        else:
+            self._show_update(info)
+
+    def _show_update(self, info) -> None:
+        dlg = UpdateDialog(self.ctx, info, self)
+        dlg.quit_for_update.connect(self.close)
+        dlg.setModal(False)
+        dlg.show()
+        self._update_dlg = dlg
 
     def _act(self, text, fn, shortcut=None) -> QAction:
         a = QAction(text, self)

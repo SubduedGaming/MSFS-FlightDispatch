@@ -32,7 +32,7 @@ SCRIPT = textwrap.dedent("""
 
 
 def _run(tmp_path, first_run):
-    env = dict(os.environ, QT_QPA_PLATFORM="offscreen", SKYDISPATCH_HOME=str(tmp_path / "h"),
+    env = dict(os.environ, QT_QPA_PLATFORM="offscreen", SKYDISPATCH_NO_UPDATE_CHECK="1", SKYDISPATCH_HOME=str(tmp_path / "h"),
                PYTHONPATH=os.path.join(os.path.dirname(__file__), "..", "src"))
     return subprocess.run([sys.executable, "-c", SCRIPT.format(first_run=first_run)],
                           capture_output=True, text=True, timeout=60, env=env)

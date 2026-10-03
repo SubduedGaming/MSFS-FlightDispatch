@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog
                                QHBoxLayout, QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QSpinBox,
                                QTabWidget, QVBoxLayout, QWidget)
 
+from ... import __version__
 from ...ai.llm import LMStudioClient
 from ...ai.personas import PERSONAS
 from ...copilot.personas import COPILOTS
@@ -134,6 +135,7 @@ class SettingsPage(Page):
                    self.settings.sim.bridge_token, self.settings.sim.share_enabled,
                    self.settings.sim.share_port, self.settings.sim.share_token)
         old_theme = self.settings.ui.theme
+        old_remote = (self.settings.remote.enabled, self.settings.remote.port, self.settings.remote.token)
         for w, sec, field in self._bindings:
             obj = self._section(sec)
             if isinstance(w, QCheckBox):
@@ -157,6 +159,10 @@ class SettingsPage(Page):
                    self.settings.sim.share_port, self.settings.sim.share_token)
         if new_sim != old_sim:
             self.ctx.start_sim()
+        r = self.settings.remote
+        if (r.enabled, r.port, r.token) != old_remote or (r.enabled and not (self.ctx.web and self.ctx.web.running)):
+            self.ctx.start_web()
+            self._update_remote_info()
         if self.settings.ui.theme != old_theme:
             self.theme_changed.emit(self.settings.ui.theme)
         self.ctx.check_ai()
@@ -181,6 +187,16 @@ class SettingsPage(Page):
         home.setMaxLength(4)
         f.addRow("Home airport (ICAO):", home)
         lay.addWidget(g)
+        gu = QGroupBox("Updates")
+        fu = QFormLayout(gu)
+        fu.addRow(self._bind(QCheckBox("Check for a newer version when SkyDispatch starts"), "ui", "check_updates"))
+        ur = QHBoxLayout()
+        chk = QPushButton("Check now")
+        chk.clicked.connect(lambda: self.ctx.check_for_updates(manual=True))
+        ur.addWidget(chk)
+        ur.addWidget(muted(f"You have version {__version__}.", wrap=False), 1)
+        fu.addRow(ur)
+        lay.addWidget(gu)
         g2 = QGroupBox("Display")
         f2 = QFormLayout(g2)
         f2.addRow("Theme:", self._bind(_combo([("Dark", "dark"), ("Light", "light")]), "ui", "theme"))
@@ -229,6 +245,7 @@ class SettingsPage(Page):
         lay.addLayout(row)
         if sys.platform == "win32":
             lay.addWidget(self._share_group())
+            lay.addWidget(self._remote_group())
         else:
             lay.addWidget(muted(
                 "MSFS runs on Windows. To use this computer for your career, open SkyDispatch on the Windows PC, "
@@ -285,6 +302,44 @@ class SettingsPage(Page):
         self.ctx.sim_status.connect(lambda *_: self._update_share_info())
         self._update_share_info()
         return g
+
+    def _remote_group(self) -> QWidget:
+        g = QGroupBox("Browser remote (use SkyDispatch from a Mac, tablet or phone)")
+        f = QFormLayout(g)
+        f.addRow(self._bind(QCheckBox("Serve the web remote from this PC"), "remote", "enabled"))
+        self.remote_port = self._bind(QSpinBox(), "remote", "port")
+        self.remote_port.setRange(1024, 65535)
+        self.remote_token = self._bind(QLineEdit(), "remote", "token")
+        trow = QHBoxLayout()
+        trow.addWidget(self.remote_token, 1)
+        gen = QPushButton("Generate")
+        gen.clicked.connect(lambda: self.remote_token.setText(secrets.token_urlsafe(9)))
+        trow.addWidget(gen)
+        f.addRow("Port:", self.remote_port)
+        f.addRow("Access code:", trow)
+        self.remote_info = muted("")
+        f.addRow(self.remote_info)
+        open_btn = QPushButton("Open on this PC")
+        open_btn.clicked.connect(lambda: QDesktopServices.openUrl(
+            QUrl(f"http://127.0.0.1:{self.settings.remote.port}/")))
+        f.addRow(open_btn)
+        f.addRow(muted("Open the address in a browser on your Mac and type the access code once. Voice, the sim and "
+                       "the AI all keep running on this PC; the browser is only a remote control. Only enable this "
+                       "on a network you trust. Changing the access code signs every device out."))
+        self.ctx.settings_changed.connect(self._update_remote_info)
+        self._update_remote_info()
+        return g
+
+    def _update_remote_info(self) -> None:
+        if self.ctx.closed or not hasattr(self, "remote_info"):
+            return
+        web = self.ctx.web
+        if web is not None and web.running:
+            from ...sim.bridge_server import local_addresses
+            addrs = "  or  ".join(f"http://{a}:{self.settings.remote.port}/" for a in local_addresses())
+            self.remote_info.setText(f"On. Open {addrs} on your other device. Browser windows open: {web.client_count}.")
+        else:
+            self.remote_info.setText(self.ctx.web_error or "Off.")
 
     def _update_share_info(self) -> None:
         if self.ctx.closed:

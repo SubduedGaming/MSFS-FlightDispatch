@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.0
+- **Browser remote:** the Windows app can serve a web version of itself (Settings > Simulator > Browser remote).
+  Open it from a Mac, iPad or phone to use every page as a remote control; voice, the sim and the AI keep running
+  on the PC, including push-to-talk through the PC's microphone. Access-code login, live updates, no extra
+  install. See docs/REMOTE.md.
+- **Updater:** SkyDispatch checks GitHub for new releases at startup (switchable) and from Help > Check for updates.
+  On Windows it downloads the installer over HTTPS, verifies it and upgrades in place, keeping your career.
+
 ## 1.1.2
 - Fix: installed-aircraft detection now understands the MSFS 2024 folder layout (Community2024, Official2020,
   Official2024), so Store installs are no longer reported as "unknown".

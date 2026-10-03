@@ -93,6 +93,14 @@ class GameSettings:
 
 
 @dataclass
+class RemoteSettings:
+    """Browser remote control: the Windows app serves a web UI that any device on your network can use."""
+    enabled: bool = False
+    port: int = 8766
+    token: str = ""                  # the access code typed once on each device
+
+
+@dataclass
 class UISettings:
     units_distance: str = "nm"       # nm | km
     units_weight: str = "lb"         # lb | kg
@@ -100,6 +108,7 @@ class UISettings:
     theme: str = "dark"              # dark | light
     first_run_complete: bool = False
     window_geometry: str = ""
+    check_updates: bool = True       # look for a newer release on GitHub at startup
 
 
 @dataclass
@@ -110,6 +119,7 @@ class Settings:
     voice: VoiceSettings = field(default_factory=VoiceSettings)
     game: GameSettings = field(default_factory=GameSettings)
     ui: UISettings = field(default_factory=UISettings)
+    remote: RemoteSettings = field(default_factory=RemoteSettings)
 
     # ------------------------------------------------------------------
     def to_dict(self) -> dict[str, Any]:

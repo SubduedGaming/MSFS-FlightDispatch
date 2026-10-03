@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import secrets
 import time
 from pathlib import Path
@@ -22,6 +23,7 @@ from ..sim.bridge_server import BridgeHost
 from ..sim.factory import make_provider
 from ..sim.installed import detect_installed, format_ids, parse_ids, searched_locations
 from ..sim.simulated import SimulatedProvider
+from .. import __version__, updater
 from ..voice.service import VoiceService
 from .workers import run_async
 
@@ -38,6 +40,7 @@ class AppContext(QObject):
     toast = Signal(str, str)              # level (info/good/warn/bad), message
     listening = Signal(bool)
     settings_changed = Signal()
+    update_available = Signal(object)     # updater.UpdateInfo
 
     def __init__(self, settings: Settings, db: Database):
         super().__init__()
@@ -52,6 +55,9 @@ class AppContext(QObject):
         self.sim_connected = False
         self.share_host: BridgeHost | None = None
         self.share_error = ""
+        self.web = None                       # web.server.WebRemote, created on first start_web()
+        self.web_error = ""
+        self.update_info: updater.UpdateInfo | None = None
         self.closed = False
         self._pending: dict[str, int] = {}
         # Dispatcher comments, debriefs and follow-up questions must appear in the order things happened.
@@ -80,6 +86,7 @@ class AppContext(QObject):
         self._timer.stop()
         self.stop_sim()
         self.stop_share()
+        self.stop_web()
         QThreadPool.globalInstance().waitForDone(1500)     # let in-flight background tasks finish before the DB closes
         self._ai_pool.waitForDone(1500)
         self.career.flush_telemetry()
@@ -149,6 +156,55 @@ class AppContext(QObject):
         if self.share_host:
             self.share_host.stop()
             self.share_host = None
+
+    # ----------------------------------------------------------- web remote
+    def start_web(self) -> None:
+        """Serve the browser remote (a Mac/tablet/phone UI) when it is switched on in Settings."""
+        self.stop_web()
+        r = self.settings.remote
+        if not r.enabled:
+            return
+        if not r.token:
+            r.token = secrets.token_urlsafe(9)
+            self.settings.save()
+        from ..web.server import WebRemote
+        if self.web is None:
+            self.web = WebRemote(self)
+        self.web.host, self.web.port, self.web.token = "0.0.0.0", r.port, r.token
+        try:
+            self.web.start()
+        except OSError as e:
+            self.web_error = f"Could not start the browser remote on port {r.port}: {e}"
+            log.warning(self.web_error)
+            self.toast.emit("warn", self.web_error)
+            return
+        self.web_error = ""
+
+    def stop_web(self) -> None:
+        if self.web is not None and self.web.running:
+            self.web.stop()
+
+    # -------------------------------------------------------------- updates
+    def check_for_updates(self, manual: bool = False) -> None:
+        """Look for a newer GitHub release. Automatic checks stay quiet unless something newer exists."""
+        if not manual and (not self.settings.ui.check_updates or os.environ.get("SKYDISPATCH_NO_UPDATE_CHECK")):
+            return
+
+        def done(info):
+            if self.closed:
+                return
+            self.update_info = info
+            if info:
+                self.update_available.emit(info)
+                self.settings_changed.emit()
+            elif manual:
+                self.toast.emit("good", f"You're up to date (version {__version__}).")
+
+        def failed(err: str):
+            log.info("update check failed: %s", err)
+            if manual and not self.closed:
+                self.toast.emit("warn", err if "GitHub" in err else "Could not check for updates. Are you online?")
+        run_async(updater.check_for_update, done, failed, owner=self)
 
     def _on_status(self, status: str, message: str) -> None:
         if self.share_host:

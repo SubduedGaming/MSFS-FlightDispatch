@@ -53,6 +53,7 @@ skydispatch                                                 # or: python -m skyd
 2. **AI dispatcher:** install [LM Studio](https://lmstudio.ai), load an instruct model, start its local server, press *Test connection* in the wizard ([details](docs/AI_SETUP.md)).
 3. **Simulator link:**
    - Windows with MSFS on the same PC: choose *Microsoft Flight Simulator*.
+   - Just want a second screen? Turn on the *Browser remote* in Settings > Simulator and open it from any browser on your network ([guide](docs/REMOTE.md)).
    - macOS/Linux, or a second PC: turn on *Share flight data* in SkyDispatch on the Windows PC, then choose *SkyDispatch on my Windows PC* on the other computer ([guide](docs/SHARING.md)).
    - No sim handy? Choose the *simulated flight engine* and press **Start demo flight** on the Flight tab.
 4. Open **Job Board** and apply to **Bluebird Bush Air** (no requirements). Open **Messenger**, tell the dispatcher how long you have, and **Accept** a flight. (Or take a **Freelance** contract with your own aircraft.)
