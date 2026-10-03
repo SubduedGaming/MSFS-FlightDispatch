@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "skydispatch"
+dynamic = ["version"]
+description = "Career mode add-on for MSFS 2020/2024 with an AI flight dispatcher"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+dependencies = [
+    "PySide6-Essentials>=6.6",
+    "httpx>=0.25",
+    "platformdirs>=4.0",
+]
+
+[project.optional-dependencies]
+# Live connection to MSFS (Windows only; the bridge uses this too).
+sim = ["SimConnect>=0.4.24; sys_platform == 'win32'"]
+# Local speech recognition + microphone capture.
+stt = ["faster-whisper>=1.0", "sounddevice>=0.4", "numpy>=1.24"]
+# Neural text-to-speech (Piper) + audio playback.
+tts = ["piper-tts>=1.2", "sounddevice>=0.4", "numpy>=1.24"]
+# Push-to-talk key that works while MSFS has focus.
+hotkey = ["pynput>=1.7"]
+voice = ["skydispatch[stt,tts,hotkey]"]
+dev = ["pytest>=8", "pytest-qt>=4.4", "pyinstaller>=6.5"]
+
+[project.scripts]
+skydispatch = "skydispatch.__main__:main"
+skydispatch-bridge = "skydispatch.sim.bridge_server:main"
+
+[project.gui-scripts]
+skydispatch-gui = "skydispatch.__main__:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "skydispatch.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+skydispatch = ["resources/**/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
