@@ -157,6 +157,8 @@ class AppContext(QObject):
 
     def _ai_task(self, fn, kind: str, important: bool = True) -> None:
         def done(text):
+            if self.closed:
+                return
             if text:
                 self.db.add_message("assistant", text)
                 self.chat.emit("assistant", text)
@@ -174,6 +176,8 @@ class AppContext(QObject):
         self.chat_busy.emit(True)
 
         def done(reply: str):
+            if self.closed:
+                return
             self._chat_pending -= 1
             self.chat_busy.emit(self._chat_pending > 0)
             self.chat.emit("assistant", reply)
@@ -182,6 +186,8 @@ class AppContext(QObject):
                 self.voice.say(reply)
 
         def failed(err: str):
+            if self.closed:
+                return
             self._chat_pending -= 1
             self.chat_busy.emit(self._chat_pending > 0)
             self.chat.emit("system", err)
@@ -197,14 +203,15 @@ class AppContext(QObject):
             except LLMError:
                 pass
             return n
-        run_async(work, lambda n: (self.toast.emit("info", f"{n} new contract(s) on the board"),
-                                   self.career_event.emit("market_changed", {})),
-                  lambda e: self.toast.emit("bad", f"Could not refresh: {e}"), owner=self)
+        run_async(work, lambda n: None if self.closed else (
+                      self.toast.emit("info", f"{n} new contract(s) on the board"),
+                      self.career_event.emit("market_changed", {})),
+                  lambda e: None if self.closed else self.toast.emit("bad", f"Could not refresh: {e}"), owner=self)
 
     def check_ai(self) -> None:
         run_async(self.dispatcher.test_connection,
-                  lambda r: self.ai_status.emit(bool(r[0]), r[1]),
-                  lambda e: self.ai_status.emit(False, e), owner=self)
+                  lambda r: None if self.closed else self.ai_status.emit(bool(r[0]), r[1]),
+                  lambda e: None if self.closed else self.ai_status.emit(False, e), owner=self)
 
     # ---------------------------------------------------------------- timers
     def _tick(self) -> None:
