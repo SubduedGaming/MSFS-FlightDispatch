@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 # Build with:  pyinstaller packaging/skydispatch.spec --noconfirm
-# Produces dist/SkyDispatch (the app) and dist/SkyDispatch-Bridge (console tool for the MSFS PC).
+# Produces dist/SkyDispatch (the app; on Windows it also hosts the data sharing for other computers).
 import importlib.util
 import sys
 from pathlib import Path
@@ -20,7 +20,7 @@ binaries, hidden = [], collect_submodules("skydispatch")
 
 # Optional feature packages: bundled only when they are installed in the build environment.
 for pkg in ("faster_whisper", "ctranslate2", "tokenizers", "onnxruntime", "av", "piper", "sounddevice",
-            "_sounddevice_data", "pynput", "numpy"):
+            "_sounddevice_data", "pynput", "numpy", "SimConnect"):
     if importlib.util.find_spec(pkg):
         d, b, h = collect_all(pkg)
         datas += d
@@ -36,14 +36,6 @@ gui_pyz = PYZ(gui.pure)
 gui_exe = EXE(gui_pyz, gui.scripts, [], exclude_binaries=True, name="SkyDispatch", console=False, icon=ICON,
               disable_windowed_traceback=False, upx=False)
 gui_coll = COLLECT(gui_exe, gui.binaries, gui.datas, strip=False, upx=False, name="SkyDispatch")
-
-bridge = Analysis([str(ROOT / "packaging/entry_bridge.py")], pathex=[str(ROOT / "src")],
-                  hiddenimports=["SimConnect"] if importlib.util.find_spec("SimConnect") else [],
-                  excludes=EXCLUDES + ["PySide6", "numpy", "faster_whisper", "httpx"], noarchive=False)
-bridge_pyz = PYZ(bridge.pure)
-bridge_exe = EXE(bridge_pyz, bridge.scripts, [], exclude_binaries=True, name="SkyDispatch-Bridge", console=True,
-                 icon=ICON, upx=False)
-bridge_coll = COLLECT(bridge_exe, bridge.binaries, bridge.datas, upx=False, name="SkyDispatch-Bridge")
 
 if sys.platform == "darwin":
     app = BUNDLE(gui_coll, name="SkyDispatch.app", icon=ICON, bundle_identifier="com.skydispatch.app",

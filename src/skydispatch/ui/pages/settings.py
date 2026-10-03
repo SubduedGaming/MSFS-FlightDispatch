@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import secrets
 import shutil
 import sys
 import urllib.request
@@ -129,7 +130,8 @@ class SettingsPage(Page):
 
     def save(self) -> None:
         old_sim = (self.settings.sim.mode, self.settings.sim.bridge_host, self.settings.sim.bridge_port,
-                   self.settings.sim.bridge_token)
+                   self.settings.sim.bridge_token, self.settings.sim.share_enabled,
+                   self.settings.sim.share_port, self.settings.sim.share_token)
         old_theme = self.settings.ui.theme
         for w, sec, field in self._bindings:
             obj = self._section(sec)
@@ -150,7 +152,8 @@ class SettingsPage(Page):
                                  home_icao=p.home_icao if self.db.airport(p.home_icao) else pilot.home_icao)
         self.ctx.apply_settings()
         new_sim = (self.settings.sim.mode, self.settings.sim.bridge_host, self.settings.sim.bridge_port,
-                   self.settings.sim.bridge_token)
+                   self.settings.sim.bridge_token, self.settings.sim.share_enabled,
+                   self.settings.sim.share_port, self.settings.sim.share_token)
         if new_sim != old_sim:
             self.ctx.start_sim()
         if self.settings.ui.theme != old_theme:
@@ -197,7 +200,7 @@ class SettingsPage(Page):
         f = QFormLayout(g)
         modes = [("Simulated flight engine (demo, no sim needed)", "simulated"),
                  ("Microsoft Flight Simulator on this PC (Windows)", "simconnect"),
-                 ("SkyDispatch Bridge on another PC (network)", "bridge")]
+                 ("SkyDispatch on my Windows PC (network)", "bridge")]
         self.sim_mode = self._bind(_combo(modes), "sim", "mode")
         self.sim_mode.currentIndexChanged.connect(self._update_sim_visibility)
         f.addRow("Source:", self.sim_mode)
@@ -209,7 +212,7 @@ class SettingsPage(Page):
         self.sim_speed = self._bind(QDoubleSpinBox(), "sim", "simulated_speed")
         self.sim_speed.setRange(1, 60)
         self.sim_speed.setSuffix("x")
-        self.rows = {"host": (QLabel("Bridge address:"), self.bridge_host), "port": (QLabel("Bridge port:"), self.bridge_port),
+        self.rows = {"host": (QLabel("Windows PC address:"), self.bridge_host), "port": (QLabel("Windows PC port:"), self.bridge_port),
                      "token": (QLabel("Shared token:"), self.bridge_token), "speed": (QLabel("Demo time speed:"), self.sim_speed)}
         for lbl, wid in self.rows.values():
             f.addRow(lbl, wid)
@@ -223,10 +226,13 @@ class SettingsPage(Page):
         row.addWidget(test)
         row.addWidget(self.sim_status, 1)
         lay.addLayout(row)
-        lay.addWidget(muted(
-            "Mac and Linux cannot run MSFS directly. Install SkyDispatch Bridge on the Windows PC running MSFS "
-            "(included in the Windows installer, or run 'skydispatch-bridge --token YOURSECRET'), then choose "
-            "'Bridge' here with that PC's address."))
+        if sys.platform == "win32":
+            lay.addWidget(self._share_group())
+        else:
+            lay.addWidget(muted(
+                "MSFS runs on Windows. To use this computer for your career, open SkyDispatch on the Windows PC, "
+                "turn on 'Share flight data' in Settings > Simulator, then choose 'SkyDispatch on my Windows PC' "
+                "here with its address and token."))
         self.ctx.sim_status.connect(lambda st, msg: self.sim_status.setText(f"{st}: {msg}"))
         g2 = QGroupBox("Aircraft installed in your simulator")
         f2 = QFormLayout(g2)
@@ -251,10 +257,45 @@ class SettingsPage(Page):
         btns.addStretch(1)
         f2.addRow(btns)
         lay.addWidget(g2)
-        lay.addWidget(muted("Detection reads your MSFS packages folder (Community and Official). With a Bridge, the "
-                            "Windows PC reports what it has installed. Aircraft you have flown also count as installed."))
+        lay.addWidget(muted("Detection reads your MSFS packages folder (Community and Official). When connected to your Windows PC, "
+                            "it reports what it has installed. Aircraft you have flown also count as installed."))
         lay.addStretch(1)
         return w
+
+    def _share_group(self) -> QWidget:
+        g = QGroupBox("Share flight data with other computers")
+        f = QFormLayout(g)
+        f.addRow(self._bind(QCheckBox("Let SkyDispatch on my Mac/Linux/other PC connect to this one"), "sim",
+                            "share_enabled"))
+        self.share_port = self._bind(QSpinBox(), "sim", "share_port")
+        self.share_port.setRange(1024, 65535)
+        self.share_token = self._bind(QLineEdit(), "sim", "share_token")
+        trow = QHBoxLayout()
+        trow.addWidget(self.share_token, 1)
+        gen = QPushButton("Generate")
+        gen.clicked.connect(lambda: self.share_token.setText(secrets.token_urlsafe(12)))
+        trow.addWidget(gen)
+        f.addRow("Port:", self.share_port)
+        f.addRow("Shared token:", trow)
+        self.share_info = muted("")
+        f.addRow(self.share_info)
+        f.addRow(muted("Only share on a network you trust. Windows may ask to allow SkyDispatch through the "
+                       "firewall the first time; allow it for Private networks."))
+        self.ctx.sim_status.connect(lambda *_: self._update_share_info())
+        self._update_share_info()
+        return g
+
+    def _update_share_info(self) -> None:
+        if self.ctx.closed:
+            return
+        host = self.ctx.share_host
+        if host:
+            from ...sim.bridge_server import local_addresses
+            addrs = ", ".join(f"{a}:{self.settings.sim.share_port}" for a in local_addresses()) or "no network found"
+            self.share_info.setText(f"Sharing is on. Connect from other computers to {addrs}. "
+                                    f"Connected computers: {host.client_count}.")
+        else:
+            self.share_info.setText(self.ctx.share_error or "Sharing is off.")
 
     def _browse_packages(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "MSFS packages folder (contains Community and Official)")

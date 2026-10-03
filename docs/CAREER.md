@@ -61,7 +61,7 @@ On the **Flight** tab the copilot sits in the right seat. Ask by typing, with th
 Jobs, company flights and the dealer only use aircraft you actually have installed.
 
 - **Windows with MSFS:** detected automatically from your packages folder (Community and Official, 2020 and 2024).
-- **Mac/Linux with the Bridge:** the Bridge reports what is installed on the Windows PC when it connects.
+- **Mac/Linux connected to your Windows PC:** the Windows PC reports what is installed on the Windows PC when it connects.
 - **Anything else:** Settings > Simulator > *Choose manually*, or point at a packages folder with *Browse*.
 - If SkyDispatch cannot tell what is installed it does **not** restrict anything. Aircraft you have flown in the sim always count as installed.
 - A company whose aircraft you do not have installed is shown as unavailable instead of offering flights you could not fly.

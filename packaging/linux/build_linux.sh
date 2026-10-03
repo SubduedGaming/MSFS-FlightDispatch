@@ -12,9 +12,7 @@ PKG="build/deb/skydispatch_${VERSION}_${ARCH}"
 rm -rf "$PKG" && mkdir -p "$PKG"/{DEBIAN,opt/skydispatch,usr/bin,usr/share/applications,usr/share/doc/skydispatch} \
                           "$PKG/usr/share/icons/hicolor/256x256/apps"
 cp -a dist/SkyDispatch/. "$PKG/opt/skydispatch/"
-mkdir -p "$PKG/opt/skydispatch/bridge" && cp -a dist/SkyDispatch-Bridge/. "$PKG/opt/skydispatch/bridge/"
 ln -s /opt/skydispatch/SkyDispatch "$PKG/usr/bin/skydispatch"
-ln -s /opt/skydispatch/bridge/SkyDispatch-Bridge "$PKG/usr/bin/skydispatch-bridge"
 cp packaging/linux/skydispatch.desktop "$PKG/usr/share/applications/"
 cp packaging/linux/skydispatch.png "$PKG/usr/share/icons/hicolor/256x256/apps/"
 cp LICENSE "$PKG/usr/share/doc/skydispatch/copyright"
@@ -31,8 +29,8 @@ Depends: libc6, libegl1, libgl1, libxkbcommon0, libxkbcommon-x11-0, libdbus-1-3,
 Recommends: libportaudio2, espeak-ng
 Description: Career mode add-on for Microsoft Flight Simulator with an AI dispatcher
  Accept contracts from a job market, record your flights, manage a hangar and
- talk to an AI flight dispatcher by text or voice. Connects to MSFS through the
- SkyDispatch Bridge running on the Windows PC.
+ talk to an AI flight dispatcher by text or voice. Connects to MSFS through
+ SkyDispatch running on the Windows PC.
 CONTROL
 cat > "$PKG/DEBIAN/postinst" <<'POST'
 #!/bin/sh
@@ -54,7 +52,6 @@ if [ -n "$APPIMAGETOOL" ]; then
   APPDIR="build/SkyDispatch.AppDir"
   rm -rf "$APPDIR" && mkdir -p "$APPDIR/usr"
   cp -a dist/SkyDispatch/. "$APPDIR/usr/"
-  mkdir -p "$APPDIR/usr/bridge" && cp -a dist/SkyDispatch-Bridge/. "$APPDIR/usr/bridge/"
   cp packaging/linux/skydispatch.desktop "$APPDIR/skydispatch.desktop"
   cp packaging/linux/skydispatch.png "$APPDIR/skydispatch.png"
   printf '#!/bin/sh\nHERE="$(dirname "$(readlink -f "$0")")"\nexec "$HERE/usr/SkyDispatch" "$@"\n' > "$APPDIR/AppRun"

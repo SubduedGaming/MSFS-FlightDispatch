@@ -1,8 +1,9 @@
 """First-run guided setup: pilot -> simulator -> AI -> voice -> starter aircraft."""
 from __future__ import annotations
+import sys
 
-from PySide6.QtWidgets import (QComboBox, QFormLayout, QLabel, QLineEdit, QProgressBar, QPushButton, QRadioButton,
-                               QVBoxLayout, QWidget, QWizard, QWizardPage, QCheckBox, QSpinBox)
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QFormLayout, QLabel, QLineEdit, QProgressBar, QPushButton, QRadioButton,
+                               QVBoxLayout, QWidget, QWizard, QWizardPage, QSpinBox)
 
 from ..ai.llm import LMStudioClient
 from ..ai.personas import PERSONAS
@@ -93,11 +94,10 @@ class SimPage(QWizardPage):
         self.setSubTitle("How should SkyDispatch read your flight data?")
         lay = QVBoxLayout(self)
         self.r_msfs = QRadioButton("Microsoft Flight Simulator on this PC (Windows)")
-        self.r_bridge = QRadioButton("MSFS on another PC, using SkyDispatch Bridge (Mac/Linux, or a second screen PC)")
+        self.r_bridge = QRadioButton("MSFS is on my Windows PC and I run SkyDispatch on this computer (Mac/Linux)")
         self.r_demo = QRadioButton("Try it first with the built-in simulated flight engine")
         for r in (self.r_msfs, self.r_bridge, self.r_demo):
             lay.addWidget(r)
-        import sys
         if sys.platform == "win32" and simconnect_available():
             self.r_msfs.setChecked(True)
         elif sys.platform == "win32":
@@ -111,18 +111,21 @@ class SimPage(QWizardPage):
         self.port.setRange(1024, 65535)
         self.port.setValue(ctx.settings.sim.bridge_port)
         self.token = QLineEdit(ctx.settings.sim.bridge_token)
-        form.addRow("Bridge address:", self.host)
+        form.addRow("Windows PC address:", self.host)
         form.addRow("Port:", self.port)
         form.addRow("Shared token:", self.token)
         self.form_widget = QWidget()
         self.form_widget.setLayout(form)
         lay.addWidget(self.form_widget)
+        self.share = QCheckBox("Also let SkyDispatch on my other computers connect to this one")
+        self.share.setVisible(sys.platform == "win32")
+        lay.addWidget(self.share)
         lay.addWidget(_note("MSFS must be running for a live connection; SkyDispatch keeps retrying, so you can "
                             "start it later. You can switch modes any time in Settings > Simulator."))
         self.detect_btn = QPushButton("Detect aircraft installed in my simulator")
         self.detect_btn.clicked.connect(self._detect)
         self.detect_lbl = _note("Jobs only use aircraft you have installed. Detection reads your MSFS install on this "
-                                "computer; with a Bridge it comes from the Windows PC. You can also choose in Settings.")
+                                "computer; when connected to your Windows PC it comes from there. You can also choose in Settings.")
         lay.addWidget(self.detect_btn)
         lay.addWidget(self.detect_lbl)
         lay.addStretch(1)
@@ -136,7 +139,7 @@ class SimPage(QWizardPage):
         def done(found):
             if found is None:
                 self.detect_lbl.setText("No MSFS install found on this computer. That's fine: all aircraft will be "
-                                        "used until you choose or connect a Bridge.")
+                                        "used until you choose or connect to your Windows PC.")
             else:
                 self.ctx.settings.sim.installed_aircraft = ",".join(sorted(found))
                 self.ctx.settings.sim.installed_auto = True
@@ -319,6 +322,8 @@ class SetupWizard(QWizard):
         s.sim.bridge_host = self.sim.host.text().strip() or "127.0.0.1"
         s.sim.bridge_port = self.sim.port.value()
         s.sim.bridge_token = self.sim.token.text().strip()
+        if self.sim.share.isChecked():
+            s.sim.share_enabled = True
         s.ai.base_url = self.ai.url.text().strip() or s.ai.base_url
         s.ai.persona = self.ai.persona.currentData()
         s.voice.tts_enabled = self.voice.tts.isChecked()
