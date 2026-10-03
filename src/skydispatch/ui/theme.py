@@ -48,10 +48,11 @@ QLabel {{ background: transparent; }}
 QLabel#h1 {{ font-size: 22px; font-weight: 700; }}
 QLabel#h2 {{ font-size: 15px; font-weight: 600; }}
 QLabel#muted {{ color: {p.muted}; }}
-QLabel#statValue {{ font-size: 22px; font-weight: 700; }}
+QLabel#statValue {{ font-size: 20px; font-weight: 700; }}
 QLabel#statLabel {{ color: {p.muted}; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }}
 QLabel#good {{ color: {p.good}; }} QLabel#warn {{ color: {p.warn}; }} QLabel#bad {{ color: {p.bad}; }}
 QFrame#card {{ background: {p.surface}; border: 1px solid {p.border}; border-radius: 10px; }}
+QFrame#offerCard {{ background: {p.surface}; border: 1px solid {p.accent}; border-radius: 12px; }}
 QFrame#sidebar {{ background: {p.sidebar}; border-right: 1px solid {p.border}; }}
 QPushButton#nav {{ text-align: left; padding: 10px 16px; border: none; border-radius: 8px; background: transparent;
     color: {p.muted}; font-size: 14px; }}
@@ -63,7 +64,7 @@ QPushButton:pressed {{ background: {p.border}; }}
 QPushButton:disabled {{ color: {p.muted}; background: {p.surface}; border-color: {p.border}; }}
 QPushButton#primary {{ background: {p.accent}; color: {p.accent_text}; border: none; font-weight: 600; }}
 QPushButton#primary:hover {{ background: {p.accent}; border: 1px solid {p.text}; }}
-QPushButton#primary:disabled {{ background: {p.border}; color: {p.muted}; }}
+QPushButton#primary:disabled {{ background: {p.surface2}; color: {p.muted}; border: 1px solid {p.border}; }}
 QPushButton#danger {{ background: transparent; color: {p.bad}; border: 1px solid {p.bad}; }}
 QPushButton#danger:hover {{ background: {p.bad}; color: {p.accent_text}; }}
 QPushButton#talk {{ background: {p.surface2}; border-radius: 20px; padding: 10px 18px; font-weight: 600; }}

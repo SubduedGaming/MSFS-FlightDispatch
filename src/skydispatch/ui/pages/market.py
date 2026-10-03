@@ -14,7 +14,7 @@ from .base import Page
 
 
 class MarketPage(Page):
-    title = "Job Market"
+    title = "Freelance"
     goto = Signal(str)
 
     def __init__(self, ctx):
@@ -23,7 +23,7 @@ class MarketPage(Page):
         root.setContentsMargins(28, 24, 28, 24)
         root.setSpacing(12)
         top = QHBoxLayout()
-        top.addWidget(heading("Job Market"))
+        top.addWidget(heading("Freelance Contracts"))
         top.addStretch(1)
         self.search = QLineEdit()
         self.search.setPlaceholderText("Filter by airport or city...")
@@ -216,8 +216,8 @@ class MarketPage(Page):
     def _ask(self) -> None:
         j = self._selected()
         if j:
-            self.goto.emit("dispatcher")
-            self.ctx.ask(f"Tell me about job {j.id}, {j.origin} to {j.dest}. Is it worth taking?")
+            self.goto.emit("messenger")
+            self.ctx.ask(f"Tell me about job {j.id}, {j.origin} to {j.dest}. Is it worth taking?", "general")
 
     def _refresh_market(self) -> None:
         self.btn_refresh.setEnabled(False)

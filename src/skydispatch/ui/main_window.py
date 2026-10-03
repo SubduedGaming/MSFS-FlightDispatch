@@ -15,10 +15,11 @@ from . import fmt, theme
 from .context import AppContext
 from .dialogs import AboutDialog, FlightResultDialog, UninstallDialog
 from .pages.dashboard import DashboardPage
-from .pages.dispatcher import DispatcherPage
 from .pages.finance import FinancePage
 from .pages.flight import FlightPage
 from .pages.hangar import HangarPage
+from .pages.jobboard import JobBoardPage
+from .pages.messenger import MessengerPage
 from .pages.logbook import LogbookPage
 from .pages.market import MarketPage
 from .pages.settings import SettingsPage
@@ -62,10 +63,11 @@ class MainWindow(QMainWindow):
         self.nav: dict[str, QPushButton] = {}
         group = QButtonGroup(self)
         group.setExclusive(True)
-        defs = [("dashboard", "Dashboard", DashboardPage), ("market", "Job Market", MarketPage),
-                ("flight", "Flight", FlightPage), ("hangar", "Hangar", HangarPage),
-                ("logbook", "Logbook", LogbookPage), ("dispatcher", "Dispatcher", DispatcherPage),
-                ("finance", "Finances", FinancePage), ("settings", "Settings", SettingsPage)]
+        defs = [("dashboard", "Dashboard", DashboardPage), ("jobboard", "Job Board", JobBoardPage),
+                ("messenger", "Messenger", MessengerPage), ("flight", "Flight", FlightPage),
+                ("market", "Freelance", MarketPage), ("hangar", "Hangar", HangarPage),
+                ("logbook", "Logbook", LogbookPage), ("finance", "Finances", FinancePage),
+                ("settings", "Settings", SettingsPage)]
         for key, label, cls in defs:
             page = cls(ctx)
             self.pages[key] = page
@@ -82,6 +84,8 @@ class MainWindow(QMainWindow):
             sl.addWidget(btn)
             if hasattr(page, "goto"):
                 page.goto.connect(self.goto)
+            if hasattr(page, "open_thread"):
+                page.open_thread.connect(self.open_messenger)
         outer.addWidget(side)
         outer.addWidget(self.stack, 1)
 
@@ -107,9 +111,10 @@ class MainWindow(QMainWindow):
         settings_page.run_wizard.connect(self.run_wizard)
         settings_page.theme_changed.connect(self.apply_theme)
 
-        # push-to-talk (in-app key + optional global hotkey)
-        self._ptt_press.connect(self.pages["dispatcher"].start_talking)
-        self._ptt_release.connect(self.pages["dispatcher"].stop_talking)
+        # push-to-talk (in-app key + optional global hotkey): talks to the copilot during a flight, else the messenger
+        self._ptt_target = None
+        self._ptt_press.connect(self._route_press)
+        self._ptt_release.connect(self._route_release)
         QApplication.instance().installEventFilter(self)
         self._global_ptt: GlobalPushToTalk | None = None
         ctx.settings_changed.connect(self._setup_global_ptt)
@@ -128,6 +133,20 @@ class MainWindow(QMainWindow):
         if hasattr(page, "refresh"):
             page.refresh()
 
+    def open_messenger(self, thread: str) -> None:
+        self.goto("messenger")
+        self.pages["messenger"].select_thread(thread)
+
+    def _route_press(self) -> None:
+        self._ptt_target = self.pages["flight"].copilot if self.ctx.copilot.in_flight() \
+            and self.ctx.settings.ai.copilot_enabled else self.pages["messenger"]
+        self._ptt_target.start_talking()
+
+    def _route_release(self) -> None:
+        if self._ptt_target is not None:
+            self._ptt_target.stop_talking()
+            self._ptt_target = None
+
     def _refresh_visible(self) -> None:
         if self.ctx.closed:
             return
@@ -143,7 +162,7 @@ class MainWindow(QMainWindow):
             dlg = FlightResultDialog(self.ctx, payload["settlement"], self)
             dlg.setModal(False)
             dlg.show()
-        for key in ("logbook", "hangar", "market", "dashboard", "finance"):
+        for key in ("logbook", "hangar", "market", "dashboard", "finance", "jobboard"):
             if self.stack.currentWidget() is not self.pages[key]:
                 if hasattr(self.pages[key], "refresh"):
                     QTimer.singleShot(0, self.pages[key].refresh)
@@ -172,12 +191,13 @@ class MainWindow(QMainWindow):
         f.addSeparator()
         f.addAction(self._act("Quit", self.close, QKeySequence.Quit))
         c = mb.addMenu("&Career")
-        c.addAction(self._act("Find new contracts", self.ctx.refresh_market, "Ctrl+R"))
+        c.addAction(self._act("Find new freelance contracts", self.ctx.refresh_market, "Ctrl+R"))
         c.addAction(self._act("Run setup wizard...", self.run_wizard))
         v = mb.addMenu("&View")
-        for i, (key, label) in enumerate([("dashboard", "Dashboard"), ("market", "Job Market"), ("flight", "Flight"),
-                                          ("hangar", "Hangar"), ("logbook", "Logbook"), ("dispatcher", "Dispatcher"),
-                                          ("finance", "Finances"), ("settings", "Settings")], start=1):
+        for i, (key, label) in enumerate([("dashboard", "Dashboard"), ("jobboard", "Job Board"),
+                                          ("messenger", "Messenger"), ("flight", "Flight"), ("market", "Freelance"),
+                                          ("hangar", "Hangar"), ("logbook", "Logbook"), ("finance", "Finances"),
+                                          ("settings", "Settings")], start=1):
             v.addAction(self._act(label, lambda k=key: self.goto(k), f"Ctrl+{i}"))
         v.addSeparator()
         v.addAction(self._act("Toggle light/dark theme", self._toggle_theme))

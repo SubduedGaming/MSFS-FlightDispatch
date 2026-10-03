@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+- **Job Board:** ten companies on a career ladder. Applications are decided on total time, recent experience, skill
+  level and hours on the company's aircraft class, with a requirement checklist and an application history.
+- **Recent experience** decays with every day without flying (45-day half-life, configurable). Skill rating follows
+  your flight scores. Dashboard shows both.
+- **Messenger** replaces the dispatcher chat: a thread per employer plus your operations desk. Dispatchers ask how
+  long you have free and create flights that fit, as Accept/Decline cards. New AI tools: set_availability,
+  offer_flights, list_employers, apply_to_employer, get_qualifications.
+- **Copilot** on the Flight tab: AI advice from live telemetry, phase checklists, fuel/descent/approach/weather
+  helpers, proactive callouts, two personalities, works offline, push-to-talk routing during flights.
+- **Installed aircraft:** jobs, company flights, the dealer and starter choices only use aircraft installed in the
+  sim (automatic detection of MSFS 2020/2024 packages, reported by the Bridge for remote setups, or manual choice).
+- Starting experience presets in the setup wizard; pilot location tracked between flights.
+- Database migration 2 (existing careers upgrade in place).
+
 ## 1.0.0
 - Career engine: job market (passenger, cargo, VIP charter, medevac, mail), contracts with deadlines and payouts,
   reputation, XP and ranks.

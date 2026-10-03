@@ -34,7 +34,22 @@ def job_facts(db: Database, job: Job, aircraft: HangarAircraft | None = None) ->
         facts["est_block_time"] = fmt_duration(estimate_block_minutes(job.distance_nm, t.cruise_kts))
         facts["est_fuel_gal"] = round(job.distance_nm / t.cruise_kts * t.fuel_gph * 1.1 + t.fuel_gph * 0.75)
         facts["fuel_on_board_gal"] = round(aircraft.fuel_gal)  # type: ignore[union-attr]
+    elif job.provided_type and get_type(job.provided_type):
+        t = get_type(job.provided_type)
+        facts["aircraft"] = f"{t.name} (company aircraft, already fuelled)"
+        facts["est_block_time"] = fmt_duration(estimate_block_minutes(job.distance_nm, t.cruise_kts))
+        facts["approach_speed_kt"] = t.vref_kts
     return facts
+
+
+def offer_summary(db: Database, job: Job) -> str:
+    """One readable line describing a flight offer (used on offer cards and for the AI)."""
+    t = get_type(job.provided_type) if job.provided_type else None
+    load = f"{job.pax} passenger{'s' if job.pax != 1 else ''}" if job.pax else f"{job.cargo_lb:,} lb of cargo"
+    block = fmt_duration(estimate_block_minutes(job.distance_nm, t.cruise_kts)) if t else "?"
+    plane = f" in the {t.name}" if t else ""
+    return (f"{job.origin} to {job.dest}, {job.distance_nm:.0f} nm, about {block} block time. "
+            f"{load.capitalize()}. Pays {job.payout:,.0f}{plane}.")
 
 
 def template_briefing(facts: dict, persona_name: str) -> str:
@@ -43,9 +58,12 @@ def template_briefing(facts: dict, persona_name: str) -> str:
         f"track {facts.get('initial_track_deg', '?')} degrees.",
         f"Payload: {facts['payload']} for {facts['client']}. Pays {facts['payout']:,}.",
     ]
-    if "aircraft" in facts:
+    if "est_fuel_gal" in facts:
         lines.append(f"You're in {facts['aircraft']}. Estimated block time {facts['est_block_time']}; plan at "
                      f"least {facts['est_fuel_gal']} gallons, you have {facts['fuel_on_board_gal']}.")
+    elif "aircraft" in facts:
+        lines.append(f"You're flying {facts['aircraft']}, estimated block time {facts['est_block_time']}, "
+                     f"approach speed around {facts.get('approach_speed_kt', '?')} knots.")
     if facts.get("deadline") != "none":
         lines.append(f"The client needs you there within {facts['deadline']}.")
     lines.append("Start engines when you're ready and I'll start the clock. Safe flight. - " + persona_name)

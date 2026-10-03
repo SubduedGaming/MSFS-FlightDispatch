@@ -43,6 +43,7 @@ class BridgeClientProvider(SimProvider):
                         self._set_status("error", reply.get("error", "Bridge rejected the connection (check token)"))
                         self._sleep(5)
                         continue
+                    self.installed = reply.get("installed")
                     self._set_status("connected", f"Bridge {self.host}:{self.port}")
                     while not self._stop.is_set():
                         line = f.readline()

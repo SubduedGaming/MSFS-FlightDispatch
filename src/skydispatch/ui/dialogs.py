@@ -7,11 +7,13 @@ import sys
 from pathlib import Path
 
 from PySide6 import __version__ as pyside_version
-from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFormLayout, QLabel, QMessageBox, QPushButton, QTextBrowser,
-                               QVBoxLayout)
+from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout, QLabel, QMessageBox,
+                               QPushButton, QTextBrowser, QVBoxLayout)
 
 from .. import APP_NAME, __version__
 from ..core import paths
+from ..data.aircraft import CATALOG
+from ..sim.installed import format_ids, parse_ids
 from . import fmt
 from .widgets import heading, muted
 
@@ -133,3 +135,53 @@ class UninstallDialog(QDialog):
             shutil.rmtree(d, ignore_errors=True)
         QMessageBox.information(self, "Done", "Your data was deleted. SkyDispatch will close now.")
         os._exit(0)
+
+
+class InstalledAircraftDialog(QDialog):
+    """Tick the aircraft you have installed in your simulator (used when auto-detection isn't possible)."""
+
+    def __init__(self, ctx, parent=None):
+        super().__init__(parent)
+        self.ctx = ctx
+        self.setWindowTitle("Aircraft installed in my simulator")
+        self.setMinimumWidth(460)
+        lay = QVBoxLayout(self)
+        lay.addWidget(heading("Installed aircraft"))
+        lay.addWidget(muted("Jobs and company flights only use aircraft ticked here. Tick the models you have "
+                            "(default or add-on) in MSFS."))
+        current = parse_ids(ctx.settings.sim.installed_aircraft)
+        self.boxes: dict[str, QCheckBox] = {}
+        for t in CATALOG:
+            box = QCheckBox(f"{t.name}  ({t.category})")
+            box.setChecked(t.id in current)
+            self.boxes[t.id] = box
+            lay.addWidget(box)
+        row = QHBoxLayout()
+        all_btn = QPushButton("Select all")
+        none_btn = QPushButton("Clear")
+        all_btn.clicked.connect(lambda: [b.setChecked(True) for b in self.boxes.values()])
+        none_btn.clicked.connect(lambda: [b.setChecked(False) for b in self.boxes.values()])
+        auto = QPushButton("Use automatic detection")
+        auto.clicked.connect(self._auto)
+        for b in (all_btn, none_btn, auto):
+            row.addWidget(b)
+        lay.addLayout(row)
+        lay.addWidget(muted("Tick nothing to stop restricting jobs by installed aircraft."))
+        bb = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        bb.accepted.connect(self._save)
+        bb.rejected.connect(self.reject)
+        lay.addWidget(bb)
+
+    def _save(self) -> None:
+        s = self.ctx.settings.sim
+        s.installed_aircraft = format_ids(i for i, b in self.boxes.items() if b.isChecked())
+        s.installed_auto = False
+        self.ctx.apply_settings()
+        self.ctx.career_event.emit("market_changed", {})
+        self.accept()
+
+    def _auto(self) -> None:
+        self.ctx.settings.sim.installed_auto = True
+        self.ctx.apply_settings()
+        self.ctx.detect_installed(force=True)
+        self.accept()

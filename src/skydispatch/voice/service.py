@@ -31,8 +31,8 @@ class VoiceService:
         return False, "No text-to-speech engine found. Install Piper (pip install skydispatch[tts]) or an OS voice."
 
     # -- speaking ----------------------------------------------------------------
-    def say(self, text: str) -> None:
-        self.tts.speak(text)
+    def say(self, text: str, voice: str = "") -> None:
+        self.tts.speak(text, voice)
 
     def shut_up(self) -> None:
         self.tts.stop()

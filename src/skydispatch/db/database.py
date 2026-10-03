@@ -180,13 +180,13 @@ class Database:
         return Pilot.from_row(self.q1("SELECT * FROM pilot WHERE id = 1"))
 
     def create_pilot(self, name: str, callsign: str, home_icao: str, balance: float) -> Pilot:
-        self.x("INSERT OR REPLACE INTO pilot (id,name,callsign,home_icao,balance,created_at) VALUES (1,?,?,?,?,?)",
-               (name, callsign, home_icao.upper(), balance, now_iso()))
+        self.x("INSERT OR REPLACE INTO pilot (id,name,callsign,home_icao,balance,created_at,location_icao) "
+               "VALUES (1,?,?,?,?,?,?)", (name, callsign, home_icao.upper(), balance, now_iso(), home_icao.upper()))
         self.add_transaction(0, "career", "Career started", _balance=balance)
         return self.pilot()  # type: ignore[return-value]
 
     def update_pilot(self, **fields: Any) -> None:
-        allowed = {"name", "callsign", "home_icao", "reputation", "xp", "total_minutes"}
+        allowed = {"name", "callsign", "home_icao", "reputation", "xp", "total_minutes", "skill", "location_icao"}
         bad = set(fields) - allowed
         if bad:
             raise ValueError(f"Cannot update {bad}")
@@ -242,20 +242,28 @@ class Database:
     # -------------------------------------------------------------------- jobs
     def add_job(self, **f: Any) -> int:
         cols = ("kind,title,origin,dest,distance_nm,pax,cargo_lb,client,briefing,payout,min_category,"
-                "min_runway_ft,min_reputation,deadline_minutes,status,created_at,expires_at")
+                "min_runway_ft,min_reputation,deadline_minutes,status,created_at,expires_at,employer_id,provided_type")
         vals = (f["kind"], f["title"], f["origin"], f["dest"], f["distance_nm"], f.get("pax", 0),
                 f.get("cargo_lb", 0), f.get("client", ""), f.get("briefing", ""), f["payout"],
                 f.get("min_category", "piston"), f.get("min_runway_ft", 0), f.get("min_reputation", 0),
-                f.get("deadline_minutes", 0), "offered", now_iso(), f["expires_at"])
-        return self.x(f"INSERT INTO jobs ({cols}) VALUES ({','.join('?' * 17)})", vals)
+                f.get("deadline_minutes", 0), "offered", now_iso(), f["expires_at"], f.get("employer_id"),
+                f.get("provided_type", ""))
+        return self.x(f"INSERT INTO jobs ({cols}) VALUES ({','.join('?' * 19)})", vals)
 
     def job(self, job_id: int) -> Job | None:
         return Job.from_row(self.q1("SELECT * FROM jobs WHERE id = ?", (job_id,)))
 
-    def jobs(self, status: str | tuple[str, ...] = "offered", limit: int = 200) -> list[Job]:
+    def jobs(self, status: str | tuple[str, ...] = "offered", limit: int = 200, scope: str = "freelance") -> list[Job]:
+        """scope: 'freelance' (open-market jobs), 'all', or an employer id (that company's flights)."""
         statuses = (status,) if isinstance(status, str) else status
         marks = ",".join("?" * len(statuses))
-        rows = self.q(f"SELECT * FROM jobs WHERE status IN ({marks}) ORDER BY id DESC LIMIT ?", (*statuses, limit))
+        where, args = f"status IN ({marks})", list(statuses)
+        if scope == "freelance":
+            where += " AND employer_id IS NULL"
+        elif scope != "all":
+            where += " AND employer_id = ?"
+            args.append(scope)
+        rows = self.q(f"SELECT * FROM jobs WHERE {where} ORDER BY id DESC LIMIT ?", (*args, limit))
         return [Job.from_row(r) for r in rows]
 
     def set_job(self, job_id: int, **fields: Any) -> None:
@@ -273,9 +281,15 @@ class Database:
         return self.x("UPDATE jobs SET status = 'expired' WHERE status = 'offered' AND expires_at < ?", (now_iso(),))
 
     # ----------------------------------------------------------------- flights
-    def create_flight(self, job_id: int | None, aircraft_id: int | None, sim_title: str, dep: str) -> int:
-        return self.x("INSERT INTO flights (job_id,aircraft_id,sim_title,dep,started_at) VALUES (?,?,?,?,?)",
-                      (job_id, aircraft_id, sim_title, dep, now_iso()))
+    def create_flight(self, job_id: int | None, aircraft_id: int | None, sim_title: str, dep: str,
+                      type_id: str = "", employer_id: str | None = None) -> int:
+        return self.x("INSERT INTO flights (job_id,aircraft_id,sim_title,dep,started_at,type_id,employer_id) "
+                      "VALUES (?,?,?,?,?,?,?)", (job_id, aircraft_id, sim_title, dep, now_iso(), type_id, employer_id))
+
+    def flight_history(self) -> list[sqlite3.Row]:
+        """Every finished flight with air time (used for qualifications)."""
+        return self.q("SELECT started_at, air_min, type_id, outcome, employer_id FROM flights "
+                      "WHERE outcome != 'in_progress' AND air_min > 0 ORDER BY started_at")
 
     def finish_flight(self, flight_id: int, **fields: Any) -> None:
         allowed = {"arr", "block_min", "air_min", "distance_nm", "fuel_used_gal", "landing_fpm", "max_g",
@@ -323,15 +337,54 @@ class Database:
         return self.q("SELECT * FROM aircraft_flown ORDER BY minutes DESC")
 
     # ---------------------------------------------------------------- messages
-    def add_message(self, role: str, content: str) -> int:
-        return self.x("INSERT INTO messages (ts, role, content) VALUES (?,?,?)", (now_iso(), role, content))
+    def add_message(self, role: str, content: str, thread: str = "general", kind: str = "text",
+                    payload: str = "") -> int:
+        return self.x("INSERT INTO messages (ts, role, content, thread, kind, payload) VALUES (?,?,?,?,?,?)",
+                      (now_iso(), role, content, thread, kind, payload))
 
-    def messages(self, limit: int = 100) -> list[sqlite3.Row]:
-        rows = self.q("SELECT * FROM messages ORDER BY id DESC LIMIT ?", (limit,))
+    def messages(self, limit: int = 100, thread: str = "general") -> list[sqlite3.Row]:
+        rows = self.q("SELECT * FROM messages WHERE thread = ? ORDER BY id DESC LIMIT ?", (thread, limit))
         return list(reversed(rows))
 
-    def clear_messages(self) -> None:
-        self.x("DELETE FROM messages")
+    def last_message(self, thread: str) -> sqlite3.Row | None:
+        return self.q1("SELECT * FROM messages WHERE thread = ? ORDER BY id DESC LIMIT 1", (thread,))
+
+    def clear_messages(self, thread: str | None = None) -> None:
+        if thread is None:
+            self.x("DELETE FROM messages")
+        else:
+            self.x("DELETE FROM messages WHERE thread = ?", (thread,))
+
+    # --------------------------------------------------------------- employment
+    def employments(self, active_only: bool = True) -> list[sqlite3.Row]:
+        sql = "SELECT * FROM employment" + (" WHERE status = 'active'" if active_only else "") + " ORDER BY hired_at"
+        return self.q(sql)
+
+    def employment(self, employer_id: str) -> sqlite3.Row | None:
+        return self.q1("SELECT * FROM employment WHERE employer_id = ?", (employer_id,))
+
+    def is_employed_by(self, employer_id: str) -> bool:
+        row = self.employment(employer_id)
+        return bool(row and row["status"] == "active")
+
+    def hire(self, employer_id: str) -> None:
+        self.x("INSERT INTO employment (employer_id, hired_at, status) VALUES (?,?, 'active') "
+               "ON CONFLICT(employer_id) DO UPDATE SET status = 'active', hired_at = excluded.hired_at",
+               (employer_id, now_iso()))
+
+    def resign(self, employer_id: str) -> None:
+        self.x("UPDATE employment SET status = 'resigned' WHERE employer_id = ?", (employer_id,))
+
+    def add_employment_stats(self, employer_id: str, minutes: float, earned: float) -> None:
+        self.x("UPDATE employment SET flights = flights + 1, minutes = minutes + ?, earned = earned + ? "
+               "WHERE employer_id = ?", (minutes, earned, employer_id))
+
+    def add_application(self, employer_id: str, status: str, message: str, snapshot: str) -> int:
+        return self.x("INSERT INTO applications (employer_id, applied_at, status, message, snapshot) VALUES (?,?,?,?,?)",
+                      (employer_id, now_iso(), status, message, snapshot))
+
+    def applications(self, limit: int = 50) -> list[sqlite3.Row]:
+        return self.q("SELECT * FROM applications ORDER BY id DESC LIMIT ?", (limit,))
 
     # -------------------------------------------------------------------- meta
     def get_meta(self, key: str, default: str = "") -> str:
@@ -345,6 +398,7 @@ class Database:
     # ------------------------------------------------------------------- reset
     def reset_career(self) -> None:
         with self.tx() as c:
+            c.execute("DELETE FROM meta WHERE key LIKE 'enhanced_%' OR key LIKE 'avail%'")
             for table in ("telemetry", "flight_events", "flights", "jobs", "hangar", "transactions",
-                          "aircraft_flown", "messages", "pilot"):
+                          "aircraft_flown", "messages", "employment", "applications", "pilot"):
                 c.execute(f"DELETE FROM {table}")

@@ -25,8 +25,8 @@ log = logging.getLogger("skydispatch.bridge")
 class _Hub:
     """Fans out the latest state to every connected client handler."""
 
-    def __init__(self, provider: SimProvider, token: str):
-        self.provider, self.token = provider, token
+    def __init__(self, provider: SimProvider, token: str, installed: list[str] | None = None):
+        self.provider, self.token, self.installed = provider, token, installed
         provider.on_state = self._on_state
         provider.on_status = self._on_status
         self._lock = threading.Lock()
@@ -75,7 +75,7 @@ class _Handler(socketserver.StreamRequestHandler):
             self.send(encode_line({"ok": False, "error": "Invalid token"}))
             log.warning("Rejected client %s", self.client_address)
             return
-        self.send(encode_line({"ok": True}))
+        self.send(encode_line({"ok": True, "installed": self.hub.installed}))
         log.info("Client connected: %s", self.client_address)
         self.request.settimeout(None)
         self.hub.add(self)
@@ -95,8 +95,8 @@ class _Server(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
 
 
-def serve(provider: SimProvider, host: str, port: int, token: str) -> _Server:
-    hub = _Hub(provider, token)
+def serve(provider: SimProvider, host: str, port: int, token: str, installed: list[str] | None = None) -> _Server:
+    hub = _Hub(provider, token, installed)
     handler = type("Handler", (_Handler,), {"hub": hub})
     server = _Server((host, port), handler)
     provider.start()
@@ -112,6 +112,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--token", default="", help="shared secret clients must send")
     ap.add_argument("--hz", type=float, default=2.0)
     ap.add_argument("--simulate", action="store_true", help="stream a demo flight instead of MSFS")
+    ap.add_argument("--packages-path", default="", help="MSFS packages folder (containing Community/ and Official/); "
+                                                       "found automatically on most installs")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -123,7 +125,11 @@ def main(argv: list[str] | None = None) -> int:
         provider = SimConnectProvider(args.hz)
     if not args.token:
         log.warning("No --token set: anyone on your network can read your telemetry.")
-    serve(provider, args.host, args.port, args.token)
+    from .installed import detect_installed
+    found = detect_installed(args.packages_path)
+    installed = sorted(found) if found is not None else None
+    print("Installed aircraft detected:", ", ".join(installed) if installed else "none (job filtering disabled)")
+    serve(provider, args.host, args.port, args.token, installed)
     host_name = socket.gethostname()
     print(f"SkyDispatch Bridge listening on {args.host}:{args.port} (host: {host_name}). Ctrl+C to stop.")
     try:

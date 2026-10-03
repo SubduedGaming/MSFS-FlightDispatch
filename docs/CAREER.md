@@ -1,0 +1,67 @@
+# Careers: companies, qualifications, messenger and copilot
+
+## The job board
+Open **Job Board** to see the companies you can apply to. Each one checks four things about you:
+
+| Qualification | What it is |
+|---|---|
+| **Total flight time** | Every hour in your logbook. |
+| **Recent experience** | Hours flown recently, *weighted by how long ago*. Each flight's hours count in full on the day you fly and **halve every 45 days** (configurable in Settings > Gameplay). Nothing is stored: it is recomputed from your logbook, so it shrinks a little every day you don't fly and recovers when you do. |
+| **Skill level** | A rolling rating (0-100) that moves towards the score of each flight: smooth landings and clean flying raise it, hard landings, overspeeds and crashes lower it. Novice < 40 <= Developing < 55 <= Competent < 70 <= Skilled < 85 <= Expert. |
+| **Time on the company's aircraft** | Hours in an aircraft class (piston, twin, turboprop, jet, airliner) from your logbook, from any flight you flew in it, including company flights. |
+
+You can apply at any time. The decision is immediate and honest: if you fall short the reply says exactly what is missing.
+
+### The ladder
+| # | Company | Flies | Pay | Total time | Recent exp. | Skill | Time on |
+|---|---|---|---|---|---|---|---|
+| 1 | **Bluebird Bush Air** | Cessna 152, Cessna 172 Skyhawk | x0.85 | - | - | - | - |
+| 2 | **Harbour Light Courier** | Cessna 172 Skyhawk, Robin DR400 | x0.95 | 10 h | - | 40 | - |
+| 3 | **Skyline Air Taxi** | Diamond DA40 NG, Cirrus SR22 | x1.05 | 50 h | 3 h | 50 | 30 h piston aircraft |
+| 3 | **Alpine Scenic Flights** | Cessna 172 Skyhawk, Diamond DA40 NG, Beechcraft Bonanza G36 | x1.00 | 100 h | 4 h | 55 | 60 h piston aircraft |
+| 4 | **Coastline Air Ambulance** | Beechcraft Baron G58, Diamond DA62 | x1.25 | 200 h | 6 h | 60 | 120 h piston aircraft |
+| 5 | **Northwind Regional Freight** | Cessna 208B Grand Caravan EX | x1.15 | 300 h | 8 h | 60 | 25 h twin aircraft |
+| 6 | **Summit Executive Aviation** | Pilatus PC-12 NGX, Daher TBM 930, Beechcraft King Air 350i | x1.35 | 500 h | 10 h | 65 | 50 h turboprop aircraft |
+| 7 | **Apex Jet Charter** | Cessna Citation CJ4 | x1.50 | 900 h | 12 h | 70 | 120 h turboprop aircraft |
+| 8 | **Meridian Airways** | Airbus A320neo, Boeing 737-800 | x1.45 | 1500 h | 15 h | 72 | 100 h jet aircraft |
+| 9 | **Atlas Global Cargo & Long-Haul** | Boeing 747-8 Intercontinental, Boeing 787-10 Dreamliner | x1.70 | 3500 h | 20 h | 78 | 400 h airliner aircraft |
+
+Companies supply the aircraft (you do not need to own them) but **the aircraft must be installed in your sim** (see below).
+Company flights pay `x` the standard rate and the company covers fuel and running costs; wear is the company's problem.
+
+### Starting experience
+The setup wizard lets you start as:
+- **New to flying (0 h)**: skill 35
+- **Student pilot (~40 h)**: skill 45
+- **Private pilot (~150 h)**: skill 55
+- **Commercial pilot (~800 h)**: skill 65
+- **Airline transport pilot (~3,000 h)**: skill 75
+
+Pick *New to flying* to climb the whole ladder, or start higher if you are already a pilot.
+
+## Messenger
+Every company that hired you has a conversation thread, plus your own **Operations** desk. In a company thread:
+
+1. The dispatcher greets you and asks **how long you have free** (quick-answer chips: 30 min, 1 h, 2 h, 3 h, 4+ h, or just type or say "an hour and a half").
+2. They create up to three flights that fit that time from where you are now, each shown as a card with **Accept** / **Decline**.
+3. Accepting withdraws the other offers and starts the job. Declining all of them makes the dispatcher ask again.
+4. After each flight the dispatcher debriefs you and asks how long you have for the next one.
+
+The dispatcher is an AI (LM Studio) but the flights are built by the app from rules, so numbers are always correct and it all works with the AI offline.
+
+## Copilot
+On the **Flight** tab the copilot sits in the right seat. Ask by typing, with the hold-to-talk button, or with the push-to-talk key (the key talks to the copilot while a flight is running, otherwise to the dispatcher).
+
+- **Quick buttons:** checklist for the current phase, fuel check (endurance vs. distance to go vs. a 45-minute reserve), descent plan (3:1 rule), approach brief (runway, speeds, pattern altitude), weather (live METAR) and status.
+- **Free questions:** answered by the AI from your *live* telemetry. If the AI server is offline the copilot falls back to the same deterministic answers.
+- **Proactive callouts** (can be switched off): "Positive rate", "Top of descent in N miles", "One thousand", "Five hundred, check speed and sink rate", "Sink rate!", approach-speed and fuel warnings. They are rule-based, instant and never repeat.
+- Two personalities (Sam, Nina) with their own voices.
+
+## Aircraft installed in your sim
+Jobs, company flights and the dealer only use aircraft you actually have installed.
+
+- **Windows with MSFS:** detected automatically from your packages folder (Community and Official, 2020 and 2024).
+- **Mac/Linux with the Bridge:** the Bridge reports what is installed on the Windows PC when it connects.
+- **Anything else:** Settings > Simulator > *Choose manually*, or point at a packages folder with *Browse*.
+- If SkyDispatch cannot tell what is installed it does **not** restrict anything. Aircraft you have flown in the sim always count as installed.
+- A company whose aircraft you do not have installed is shown as unavailable instead of offering flights you could not fly.
