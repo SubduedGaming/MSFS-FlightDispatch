@@ -77,3 +77,12 @@ def test_folder_of_packages_without_community_or_official(tmp_path):
 
 def test_searched_locations_mentions_custom_path(tmp_path):
     assert str(tmp_path) in inst.searched_locations(str(tmp_path))
+
+
+def test_msfs2024_store_layout(tmp_path):
+    """MSFS 2024 keeps Community2024 / Official2020 / Official2024 (each with OneStore) beside Community."""
+    make_pkg(tmp_path, "Official2024/OneStore", "asobo-aircraft-tbm930", {"Asobo_TBM930": "Daher TBM 930"})
+    make_pkg(tmp_path, "Official2020/OneStore", "asobo-aircraft-c172sp", {"Asobo_C172sp": "x"})
+    make_pkg(tmp_path, "Community2024", "fbw-a32nx", {"flybywire-aircraft-a320-neo": "FlyByWire Airbus A320neo"})
+    assert inst.detect_installed(str(tmp_path)) == {"tbm9", "c172", "a320"}
+    assert inst.detect_installed(str(tmp_path / "Official2024")) == {"tbm9", "c172", "a320"}

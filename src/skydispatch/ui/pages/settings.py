@@ -18,6 +18,7 @@ from ...ai.llm import LMStudioClient
 from ...ai.personas import PERSONAS
 from ...copilot.personas import COPILOTS
 from ...sim.installed import parse_ids
+from ..folder_picker import pick_packages_folder
 from ...core import paths
 from ...core.config import AISettings
 from ...sim.simconnect_provider import simconnect_available
@@ -298,7 +299,8 @@ class SettingsPage(Page):
             self.share_info.setText(self.ctx.share_error or "Sharing is off.")
 
     def _browse_packages(self) -> None:
-        path = QFileDialog.getExistingDirectory(self, "MSFS packages folder (contains Community and Official)")
+        path = pick_packages_folder(self, "MSFS packages folder (contains Community and Official)",
+                                    self.settings.sim.packages_path)
         if path:
             self.settings.sim.packages_path = path
             self.refresh()

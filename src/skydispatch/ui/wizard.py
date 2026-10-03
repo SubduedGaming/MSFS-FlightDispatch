@@ -15,6 +15,7 @@ from ..sim.simconnect_provider import simconnect_available
 from ..voice import tts as tts_mod
 from ..voice.stt import stt_available
 from .context import AppContext
+from .folder_picker import pick_packages_folder
 from .workers import run_async
 
 
@@ -141,8 +142,8 @@ class SimPage(QWizardPage):
         self.form_widget.setVisible(False)
 
     def _browse(self) -> None:
-        path = QFileDialog.getExistingDirectory(
-            self, "Your MSFS packages folder (the one containing Community and Official)")
+        path = pick_packages_folder(
+            self, "Your MSFS packages folder (the one containing Community and Official)", self.pkg_path.text())
         if path:
             self.pkg_path.setText(path)
             self._detect()

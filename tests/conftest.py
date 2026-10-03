@@ -15,6 +15,9 @@ from skydispatch.sim.simulated import SimulatedProvider
 @pytest.fixture(autouse=True)
 def isolated_home(tmp_path, monkeypatch):
     monkeypatch.setenv("SKYDISPATCH_HOME", str(tmp_path / "home"))
+    # never pick up a real MSFS install on the machine running the tests
+    monkeypatch.setattr("skydispatch.sim.installed.default_roots", lambda: [])
+    monkeypatch.setattr("skydispatch.sim.installed.userconfig_candidates", lambda: [])
 
 
 @pytest.fixture

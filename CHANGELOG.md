@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.2
+- Fix: installed-aircraft detection now understands the MSFS 2024 folder layout (Community2024, Official2020,
+  Official2024), so Store installs are no longer reported as "unknown".
+- Fix: the MSFS packages folder picker can now open the Store install's LocalCache folder (the native dialog
+  refused it with "untrusted mount point").
+
 ## 1.1.1
 - Fix: microphone/speaker names that exist under several Windows audio APIs (e.g. a headset listed as MME, DirectSound
   and WASAPI) no longer fail with "Multiple input devices found"; the default API's device is used.

@@ -73,8 +73,8 @@ def _titles(cfg_file: Path, limit: int = 60_000) -> Iterable[str]:
 def scan_packages(root: Path) -> set[str]:
     """Catalog ids of aircraft found in one packages folder."""
     found: set[str] = set()
-    bases = [root / "Community", root / "Official" / "OneStore", root / "Official" / "Steam", root / "Official"]
-    if not _has_packages(root):
+    bases = _package_bases(root)
+    if not bases:
         bases = [root]                                  # the user pointed straight at a folder of packages
     seen: set[Path] = set()
     for base in bases:
@@ -107,6 +107,28 @@ def scan_packages(root: Path) -> set[str]:
 _CONTAINERS = {"community", "official", "onestore", "steam"}
 
 
+def _is_container(name: str) -> bool:
+    """Community / Official, including the MSFS 2024 spellings (Community2024, Official2020, Official2024)."""
+    n = name.lower()
+    return n.startswith(("community", "official"))
+
+
+def _package_bases(root: Path) -> list[Path]:
+    """Folders directly holding add-on packages: every Community*/Official* folder, plus their OneStore/Steam parts."""
+    bases: list[Path] = []
+    try:
+        children = sorted(c for c in root.iterdir() if c.is_dir() and _is_container(c.name))
+    except OSError:
+        return []
+    for c in children:
+        if c.name.lower().startswith("official"):
+            for sub in ("OneStore", "Steam"):
+                if (c / sub).is_dir():
+                    bases.append(c / sub)
+        bases.append(c)
+    return bases
+
+
 def default_roots() -> list[Path]:
     """Well-known packages folders of MSFS 2020 and 2024 (Store and Steam), whether or not UserCfg.opt names them."""
     out: list[Path] = []
@@ -126,9 +148,9 @@ def normalise_root(path: Path) -> list[Path]:
     That may be the folder holding Community/Official, its parent (Packages lives inside), or the Community or
     Official folder itself."""
     out: list[Path] = []
-    if path.name.lower() in _CONTAINERS:
+    if _is_container(path.name) or path.name.lower() in _CONTAINERS:
         out.append(path.parent)
-        if path.name.lower() == "onestore" or path.name.lower() == "steam":
+        if path.name.lower() in ("onestore", "steam"):
             out.append(path.parent.parent)
     out += [path, path / "Packages"]
     seen: list[Path] = []
@@ -160,7 +182,10 @@ def candidate_roots(custom_path: str = "") -> list[Path]:
 
 
 def _has_packages(root: Path) -> bool:
-    return any((root / n).is_dir() for n in ("Community", "Official"))
+    try:
+        return any(c.is_dir() and _is_container(c.name) for c in root.iterdir())
+    except OSError:
+        return False
 
 
 def detect_installed(custom_path: str = "") -> set[str] | None:
