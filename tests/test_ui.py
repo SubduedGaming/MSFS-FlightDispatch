@@ -251,9 +251,11 @@ def test_company_career_loop_end_to_end(qtbot, ctx, win, quiet_dialogs):
     s = ctx.career.last_settlement
     assert s.metrics.outcome == "completed" and s.employer_id == "bluebird" and s.costs == 0 and s.payout > 0
     # the debrief and the next "how long do you have?" arrive in the company thread
-    qtbot.waitUntil(lambda: ctx.dispatcher.is_awaiting_availability(thread), timeout=15000)
+    qtbot.waitUntil(lambda: (ctx.db.last_message(thread) or {"kind": ""})["kind"] == "ask_time", timeout=15000)
+    assert ctx.dispatcher.is_awaiting_availability(thread)
     kinds = [(m["role"], m["kind"]) for m in ctx.db.messages(80, thread)]
     assert kinds[-1] == ("assistant", "ask_time")
+    assert ("assistant", "ask_time") not in kinds[:-1] or kinds.count(("assistant", "ask_time")) >= 2   # ordered: debrief first
     assert any("Grade" in m["content"] or "Welcome in" in m["content"] for m in ctx.db.messages(80, thread)
                if m["role"] == "assistant")
     # the copilot called out the flight in its own thread (positive rate at least)

@@ -50,6 +50,9 @@ class AppContext(QObject):
         self.sim_connected = False
         self.closed = False
         self._pending: dict[str, int] = {}
+        # Dispatcher comments, debriefs and follow-up questions must appear in the order things happened.
+        self._ai_pool = QThreadPool(self)
+        self._ai_pool.setMaxThreadCount(1)
         self.career.subscribe(self._on_career_event)
         self.sim_state.connect(self._feed)
         self.career_event.connect(self._react)
@@ -73,6 +76,7 @@ class AppContext(QObject):
         self._timer.stop()
         self.stop_sim()
         QThreadPool.globalInstance().waitForDone(1500)     # let in-flight background tasks finish before the DB closes
+        self._ai_pool.waitForDone(1500)
         self.career.flush_telemetry()
         self.voice.shutdown()
         self.settings.save()
@@ -231,7 +235,7 @@ class AppContext(QObject):
                     self.voice.say(text, self.dispatcher.persona_for(thread).piper_voice)
             if then:
                 then(text)
-        run_async(fn, done, lambda e: log.warning("AI task %s failed: %s", kind, e), owner=self)
+        run_async(fn, done, lambda e: log.warning("AI task %s failed: %s", kind, e), owner=self, pool=self._ai_pool)
 
     # ------------------------------------------------------------- employers
     def apply_to_employer(self, employer_id: str) -> ApplicationResult:
