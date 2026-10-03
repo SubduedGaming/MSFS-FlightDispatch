@@ -302,7 +302,7 @@ def test_context_starts_and_stops_the_remote(qtbot, ctx):
 
 
 def test_port_in_use_reports_an_error(qtbot, ctx):
-    a = WebRemote(ctx, "127.0.0.1", 0, TOKEN)
+    a = WebRemote(ctx, "0.0.0.0", 0, TOKEN)           # same wildcard address the app uses (macOS lets 127.0.0.1 coexist)
     a.start()
     try:
         ctx.settings.remote.enabled = True
