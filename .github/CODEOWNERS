@@ -1,0 +1,6 @@
+# Every change needs the owner's review. Workflows and packaging are the sensitive parts (they build what users install).
+*                      @SubduedGaming
+/.github/              @SubduedGaming
+/packaging/            @SubduedGaming
+/src/skydispatch/web/  @SubduedGaming
+/src/skydispatch/updater.py @SubduedGaming
