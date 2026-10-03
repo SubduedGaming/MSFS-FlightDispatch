@@ -242,7 +242,7 @@ def test_company_career_loop_end_to_end(qtbot, ctx, win, quiet_dialogs):
     ctx.accept_offer(job.id, thread)
     assert ctx.db.active_job().id == job.id
 
-    ctx.settings.sim.simulated_speed = 90
+    ctx.settings.sim.simulated_speed = 60
     ctx.start_sim()
     qtbot.waitUntil(lambda: ctx.simulated is not None and ctx.sim_connected, timeout=5000)
     assert ctx.demo_fly_active_job() is None

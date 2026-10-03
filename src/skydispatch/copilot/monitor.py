@@ -40,7 +40,8 @@ class CopilotMonitor:
             return out
         agl = s.alt_agl
         remaining = live.remaining_nm if live else None
-        if "positive_rate" not in self._fired and s.vs > 300 and 30 < agl < 600:
+        # Wide window on purpose: a stuttering feed (or an accelerated sim) can step past a narrow altitude band.
+        if "positive_rate" not in self._fired and s.vs > 300 and 30 < agl < 1500:
             if self._once("positive_rate"):
                 out.append(Callout("positive_rate", "Positive rate."))
         if dest and remaining is not None and agl > 2500 and live and live.phase in ("cruise", "climb", "descent"):

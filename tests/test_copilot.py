@@ -117,6 +117,14 @@ def test_top_of_descent_callouts_when_still_level():
     assert [c.key for c in m2.feed(st(alt_msl=6000, alt_agl=5956, vs=-600), live(remaining=tod - 2), C172, DEST, 0)] == []
 
 
+def test_positive_rate_survives_coarse_sampling():
+    """If telemetry jumps (stutter, accelerated sim) the first airborne sample may already be several hundred feet up."""
+    m = CopilotMonitor(min_gap_s=0)
+    assert [c.key for c in m.feed(st(alt_agl=900, vs=700), live(), C172, DEST, 0)] == ["positive_rate"]
+    m2 = CopilotMonitor(min_gap_s=0)
+    assert m2.feed(st(alt_agl=2500, vs=700), live(), C172, DEST, 0) == []        # well past takeoff: no stale call
+
+
 def test_monitor_rearms_after_landing():
     m = CopilotMonitor(min_gap_s=0)
     m.feed(st(alt_agl=100, vs=600), live(), C172, DEST, 0)
