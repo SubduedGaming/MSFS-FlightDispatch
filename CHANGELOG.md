@@ -3,7 +3,7 @@
 ## Unreleased
 - Fix: microphone/speaker names that exist under several Windows audio APIs (e.g. a headset listed as MME, DirectSound
   and WASAPI) no longer fail with "Multiple input devices found"; the default API's device is used.
-- App version now reports 1.1.0.
+- App version now reports 1.1.1.
 - **Sharing is built into the Windows app** (Settings > Simulator). The separate SkyDispatch Bridge is no longer
   installed; Mac/Linux connect to the Windows PC running MSFS. The `skydispatch-bridge` command remains for headless use.
 - Fix: the Windows build now bundles SimConnect.dll, so live MSFS data works from the installer.
