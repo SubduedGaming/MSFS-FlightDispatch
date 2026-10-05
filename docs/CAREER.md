@@ -10,7 +10,15 @@ Open **Job Board** to see the companies you can apply to. Each one checks four t
 | **Skill level** | A rolling rating (0-100) that moves towards the score of each flight: smooth landings and clean flying raise it, hard landings, overspeeds and crashes lower it. Novice < 40 <= Developing < 55 <= Competent < 70 <= Skilled < 85 <= Expert. |
 | **Time on the company's aircraft** | Hours in an aircraft class (piston, twin, turboprop, jet, airliner) from your logbook, from any flight you flew in it, including company flights. |
 
-You can apply at any time. The decision is immediate and honest: if you fall short the reply says exactly what is missing.
+Each company also expects the **ratings** its aircraft need (see *Training, licences and money* below).
+
+### Companies recruit in bursts, not around the clock
+A company only takes applications while it has a **vacancy open**. Vacancies appear at random and stay open for three to
+eight days; someone else may fill one early. Small operators recruit often, airlines rarely. The Job Board shows who is
+recruiting now and until when, and your operations desk tells you when a company you actually qualify for opens one.
+
+The decision is immediate and honest: if you fall short the reply says exactly what is missing, but **a rejection
+locks you out of that company for two weeks**, so check the requirements first. Getting hired fills the vacancy.
 
 ### The ladder
 | # | Company | Flies | Pay | Total time | Recent exp. | Skill | Time on |
@@ -27,7 +35,9 @@ You can apply at any time. The decision is immediate and honest: if you fall sho
 | 9 | **Atlas Global Cargo & Long-Haul** | Boeing 747-8 Intercontinental, Boeing 787-10 Dreamliner | x1.70 | 3500 h | 20 h | 78 | 400 h airliner aircraft |
 
 Companies supply the aircraft (you do not need to own them) but **the aircraft must be installed in your sim** (see below).
-Company flights pay `x` the standard rate and the company covers fuel and running costs; wear is the company's problem.
+A company pays you an **hourly rate** for the block time you fly, rising with the company's tier (about $136 an hour at
+Bluebird, about $1,250 at Atlas, before the flight score adjusts it). The company covers fuel and running costs; wear is
+the company's problem. Your own life, licences and training are not.
 
 ### Starting experience
 The setup wizard lets you start as:
@@ -43,11 +53,36 @@ Pick *New to flying* to climb the whole ladder, or start higher if you are alrea
 Every company that hired you has a conversation thread, plus your own **Operations** desk. In a company thread:
 
 1. The dispatcher greets you and asks **how long you have free** (quick-answer chips: 30 min, 1 h, 2 h, 3 h, 4+ h, or just type or say "an hour and a half").
-2. They create up to three flights that fit that time from where you are now, each shown as a card with **Accept** / **Decline**.
-3. Accepting withdraws the other offers and starts the job. Declining all of them makes the dispatcher ask again.
+2. They **assign you one flight** that fits that time from where you are now, shown as a card. **You do not choose it and you
+   cannot decline it**: you fly it, or abandon it, which costs more reputation than walking away from a freelance job.
+3. You cannot be rostered while your licence or medical has expired, or while you already have a flight assigned.
 4. After each flight the dispatcher debriefs you and asks how long you have for the next one.
 
+Each company has its own dispatcher with a name and a voice, and each of its flights has a **flight number** (for example
+BBA214: airline code BBA, flight 214). The same route always has the same number and the opposite direction gets the next
+one. SimBrief's dispatch page is prefilled with the airline code and flight number.
+
 The dispatcher is an AI (LM Studio) but the flights are built by the app from rules, so numbers are always correct and it all works with the AI offline.
+
+## Freelance contracts
+The **Freelance** board is for **owner-operators**: pilots who own an aircraft. You choose the work, fly your own aircraft and
+pay for the fuel and upkeep. Without an aircraft the page tells you to buy one or get hired.
+
+## Training, licences and money
+Being employed does not make you free. The **Training** page covers:
+
+| What | Detail |
+|---|---|
+| **Pilot licence** | Valid a year. Renew it in its last 30 days ($700). |
+| **Medical** | Valid 90 days. Renew it in its last 30 days ($350). |
+| **Expired** | You cannot take contracts or be rostered until it is renewed. You are warned 14 days ahead. |
+| **Ratings** | Earned once by paying for a course; ground school takes real days. Instrument (40 h, $9,000), multi-engine (60 h, $6,500), turboprop (150 h, $13,000, needs instrument), jet (400 h, $24,000, needs instrument) and airline (900 h, $38,000, needs jet). |
+| **Who needs what** | A company wants a rating for each kind of aircraft it flies, plus the instrument rating from tier 3. Your own aircraft needs the same ratings. |
+| **Monthly bills** | Every 30 real days: living costs by rank ($900 student to $4,200 chief pilot) plus hangar and insurance on each aircraft you own (0.6% of its price). Come back after a long break and at most two months are charged. |
+
+Difficulty scales fees, bills and course length (relaxed is cheaper and quicker, realistic dearer and slower). Pilots from
+earlier versions keep the ratings they already use, and a new pilot's starter aircraft and starting experience come with
+the matching ratings.
 
 ## Copilot
 On the **Flight** tab the copilot sits in the right seat. Ask by typing, with the hold-to-talk button, or with the push-to-talk key (the key talks to the copilot while a flight is running, otherwise to the dispatcher).

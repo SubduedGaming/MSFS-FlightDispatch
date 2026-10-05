@@ -102,6 +102,19 @@ class MarketPage(Page):
 
     def refresh(self) -> None:
         s = self.settings
+        owner = self.career.is_owner_operator()
+        for w in (self.search, self.kind, self.flyable, self.btn_refresh):
+            w.setEnabled(owner)
+        if not owner:
+            self._jobs = []
+            self.table.blockSignals(True)
+            self.table.setRowCount(0)
+            self.table.blockSignals(False)
+            self.empty.setText("Freelance contracts are for pilots who own an aircraft: you choose the work and you pay "
+                               "for fuel and upkeep. Buy an aircraft in the Hangar, or apply to a company on the Job Board "
+                               "and let their dispatcher assign your flights.")
+            self._show()
+            return
         sel = self._selected()
         sel_id = sel.id if sel else None
         text = self.search.text().strip().lower()

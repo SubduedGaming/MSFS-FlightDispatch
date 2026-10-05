@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QListWidget, QM
                                QTabWidget, QVBoxLayout, QWidget)
 
 from ...data.aircraft import get_type
+from ...data.employers import flight_label
 from ...sim.base import SimState
 from .. import fmt
 from ..copilot_panel import CopilotPanel
@@ -134,7 +135,8 @@ class FlightPage(Page):
             t = get_type(job.provided_type) if job.employer_id else (get_type(aircraft.type_id) if aircraft else None)
             plane = f"{t.name} (company aircraft)" if job.employer_id and t else \
                 (f"{t.name} {aircraft.registration}" if t and aircraft else "")
-            self.job_lbl.setText(f"{job.title}\n{job.origin} to {job.dest}  |  pays "
+            fl = flight_label(job)
+            self.job_lbl.setText(f"{job.title}\n{fl + '  |  ' if fl else ''}{job.origin} to {job.dest}  |  pays "
                                  f"{fmt.money(self.settings, job.payout)}  |  {plane}")
         else:
             self.job_lbl.setText("Free flight: no contract. Everything you fly is still logged to your logbook.")

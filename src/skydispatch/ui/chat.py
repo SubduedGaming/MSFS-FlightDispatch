@@ -83,7 +83,7 @@ class OfferCard(QFrame):
             row.addWidget(self.accept)
             row.addWidget(self.decline)
         else:
-            state = {"accepted": "Accepted", "active": "In progress", "completed": "Completed", "failed": "Failed",
+            state = {"accepted": "Assigned to you", "active": "In progress", "completed": "Completed", "failed": "Failed",
                      "declined": "Declined", "expired": "Expired"}.get(job.status, job.status)
             tone = {"completed": p.good, "accepted": p.accent, "active": p.accent, "failed": p.bad}.get(job.status, p.muted)
             lbl = QLabel(state)

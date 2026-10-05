@@ -362,3 +362,38 @@ def test_refuel_to_plan_tops_up_the_hangar_aircraft(ctx, qtbot):
     out = toasts(ctx)
     ctx.refuel_to_plan()
     assert any("already has" in m for _, m in out)
+
+
+# ---------------------------------------------------------------------------- airlines and flight numbers
+def test_every_company_has_a_unique_icao_code_and_callsign():
+    from skydispatch.data.employers import EMPLOYERS
+    codes = [e.icao for e in EMPLOYERS]
+    assert len(set(codes)) == len(codes) and all(len(c) == 3 and c.isalpha() and c.isupper() for c in codes)
+    assert all(e.callsign for e in EMPLOYERS)
+
+
+def test_flight_numbers_are_stable_per_route_and_alternate_by_direction():
+    from skydispatch.data.employers import flight_label, flight_number
+    out, back = flight_number("EGLL", "EGHI"), flight_number("EGHI", "EGLL")
+    assert out == flight_number("EGLL", "EGHI") and abs(out - back) == 1 and 100 <= min(out, back) <= 999 and max(out, back) <= 999
+    assert flight_number("egll", "eghi") == out
+    assert flight_label(job(employer_id="bluebird")) == "BBA" + str(out)
+    assert flight_label(job()) == ""                                   # freelance contracts have no airline
+
+
+def test_simbrief_link_uses_the_airline_and_flight_number():
+    url = sb.dispatch_url(job(employer_id="bluebird"), C172, "G-ABCD", "SKY1", "sd7", airline="bba", flight_number=214)
+    assert "airline=BBA" in url and "fltnum=214" in url and "SKY1" not in url
+    free = sb.dispatch_url(job(), C172, "G-ABCD", "SKY 1", "sd7")
+    assert "airline" not in free and "fltnum=SKY1" in free
+
+
+def test_context_link_for_a_company_flight(ctx):
+    from skydispatch.data.employers import flight_number
+    j = ctx.db.jobs("offered")[0] if ctx.db.jobs("offered") else None
+    active = ctx.career.active_job
+    ctx.db.x("UPDATE jobs SET employer_id = 'bluebird', provided_type = 'c172', aircraft_id = NULL WHERE id = ?", (active.id,))
+    ctx.career._job = ctx.db.job(active.id)
+    url = ctx.simbrief_link()
+    assert "airline=BBA" in url and f"fltnum={flight_number('EGLL', 'EGHI')}" in url
+    assert ctx.plan_summary()["flight"].startswith("BBA")

@@ -1,5 +1,5 @@
 """SkyDispatch - an AI dispatcher career add-on for Microsoft Flight Simulator."""
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 APP_NAME = "SkyDispatch"
 APP_ORG = "SkyDispatch"

@@ -40,14 +40,21 @@ class SimBriefError(Exception):
 
 
 def dispatch_url(job, atype: AircraftType | None, registration: str = "", callsign: str = "",
-                 static_id: str = "", units: str = "LBS") -> str:
-    """The SimBrief dispatch page, prefilled for this job. `static_id` lets us fetch exactly this plan afterwards."""
+                 static_id: str = "", units: str = "LBS", airline: str = "", flight_number: str | int = "") -> str:
+    """The SimBrief dispatch page, prefilled for this job. `static_id` lets us fetch exactly this plan afterwards.
+
+    A company flight goes out under the company's ICAO airline code and flight number (BBA214 is airline BBA, flight
+    214); a freelance flight uses the pilot's own callsign as the flight number."""
     q: dict[str, Any] = {"orig": job.origin, "dest": job.dest, "units": units}
+    if airline:
+        q["airline"] = airline.upper()[:3]
     if atype is not None:
         q["type"] = ICAO_TYPE.get(atype.id, atype.id.upper())
     if registration:
         q["reg"] = registration
-    if callsign:
+    if flight_number:
+        q["fltnum"] = str(flight_number)[:4]
+    elif callsign:
         q["fltnum"] = re.sub(r"[^A-Za-z0-9]", "", callsign)[:8]
     if job.pax:
         q["pax"] = job.pax

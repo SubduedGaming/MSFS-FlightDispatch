@@ -30,6 +30,7 @@ class Qualifications:
     days_since_last: float | None = None
     by_category_h: dict[str, float] = field(default_factory=dict)
     by_type_h: dict[str, float] = field(default_factory=dict)
+    ratings: set[str] = field(default_factory=set)      # instrument, multi-engine, turboprop, jet, airline
 
     def hours_for(self, type_req: str) -> float:
         kind, _, key = type_req.partition(":")
@@ -70,6 +71,7 @@ def compute(db, now: datetime | None = None, half_life_days: float = DEFAULT_HAL
             q.by_type_h[t.id] = q.by_type_h.get(t.id, 0.0) + hours
             q.by_category_h[t.category] = q.by_category_h.get(t.category, 0.0) + hours
     q.days_since_last = newest_age
+    q.ratings = {r["kind"] for r in db.q("SELECT kind FROM certificates") if r["kind"] not in ("licence", "medical")}
     return q
 
 
@@ -89,7 +91,8 @@ def type_req_label(type_req: str) -> str:
     return t.name if t else key
 
 
-def check_requirements(reqs: Requirements, q: Qualifications) -> list[Check]:
+def check_requirements(reqs: Requirements, q: Qualifications, employer: Employer | None = None) -> list[Check]:
+    """What the company checks. Pass the employer to include the ratings its aircraft and routes need."""
     checks: list[Check] = []
     if reqs.min_total_h:
         checks.append(Check("Total flight time", f"{reqs.min_total_h:g} h", f"{q.total_h:.1f} h",
@@ -104,11 +107,16 @@ def check_requirements(reqs: Requirements, q: Qualifications) -> list[Check]:
         have = q.hours_for(reqs.type_req)
         checks.append(Check(f"Time on {type_req_label(reqs.type_req)}", f"{reqs.min_type_h:g} h", f"{have:.1f} h",
                             have >= reqs.min_type_h))
+    if employer is not None:
+        from .credentials import RATING_LABEL, required_ratings
+        for r in required_ratings(employer):
+            held = r in q.ratings
+            checks.append(Check(RATING_LABEL[r], "required", "held" if held else "not held (see Training)", held))
     return checks
 
 
 def meets(employer: Employer, q: Qualifications) -> bool:
-    return all(c.met for c in check_requirements(employer.reqs, q))
+    return all(c.met for c in check_requirements(employer.reqs, q, employer))
 
 
 # ---- starting experience presets (wizard) -------------------------------------------
@@ -130,9 +138,13 @@ def apply_experience_preset(db, preset_id: str, days_ago: float = 14.0) -> None:
     db.update_pilot(skill=float(skill), total_minutes=total_h * 60.0)
     started = datetime.now(timezone.utc).timestamp() - days_ago * 86400
     iso = datetime.fromtimestamp(started, timezone.utc).replace(microsecond=0).isoformat()
+    db.set_meta("ratings_granted", "")             # let the new logbook decide which ratings the pilot already holds
     for cat, hours in cats.items():
         fid = db.x("INSERT INTO flights (job_id, aircraft_id, sim_title, dep, arr, started_at, ended_at, air_min, "
                    "block_min, outcome, summary, type_id) VALUES (NULL, NULL, 'Prior experience', '', '', ?, ?, ?, ?, "
                    "'prior', 'Logged before starting this career', ?)",
                    (iso, iso, hours * 60.0, hours * 60.0, _REPRESENTATIVE[cat]))
         assert fid
+    from ..core.config import Settings
+    from .credentials import Credentials
+    Credentials(db, Settings()).ensure_defaults()

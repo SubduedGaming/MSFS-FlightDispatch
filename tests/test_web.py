@@ -334,3 +334,40 @@ def test_plan_endpoints(ctx, api, monkeypatch):
     assert calls == ["import", "sync"]
     assert post(api, "/api/settings", simbrief_user=" georgeh ", auto_sync_loadout=False)[0] == 200
     assert ctx.settings.plan.simbrief_user == "georgeh" and ctx.settings.plan.auto_sync_loadout is False
+
+
+# ---------------------------------------------------------------------------- v1.4 game redesign
+def test_job_board_shows_hiring_state(ctx, api):
+    st, jb = get(api, "/api/jobboard")
+    states = {e["id"]: e["state"] for e in jb["employers"]}
+    assert states["bluebird"].startswith("Recruiting") and states["atlas"] == "Not recruiting"
+    st, e = get(api, "/api/employer/atlas")
+    assert e["can_apply"] is False and "Not recruiting" in e["hiring"]
+    assert any(c["label"] == "Instrument rating" for c in e["checks"])
+    assert get(api, "/api/employer/bluebird")[1]["can_apply"] is True
+    st, err = post(api, "/api/employer/atlas/apply")
+    assert st == 400 and "not recruiting" in err["error"].lower()
+
+
+def test_training_endpoints(ctx, api):
+    from skydispatch.pilot import quals
+    st, t = get(api, "/api/training")
+    assert st == 200 and {c["kind"] for c in t["certs"]} == {"licence", "medical"} and len(t["courses"]) == 5
+    assert t["bills"] and t["total"].startswith("$")
+    quals.apply_experience_preset(ctx.db, "student", days_ago=3)
+    ctx.db.add_transaction(20000, "t", "funds")
+    assert post(api, "/api/training/start", course_id="ir")[0] == 200
+    assert ctx.career.credentials.active_course()[0].id == "ir"
+    ctx.db.x("UPDATE certificates SET expires_at = '2020-01-01T00:00:00+00:00' WHERE kind = 'medical'")
+    assert post(api, "/api/training/renew", kind="medical")[0] == 200
+    assert ctx.career.credentials.valid("medical")
+
+
+def test_dashboard_carries_alerts_and_freelance_is_owner_only(ctx, api):
+    ctx.db.x("UPDATE certificates SET expires_at = '2020-01-01T00:00:00+00:00' WHERE kind = 'medical'")
+    d = get(api, "/api/dashboard")[1]
+    assert any(a["level"] == "bad" and "medical" in a["text"].lower() for a in d["alerts"])
+    assert get(api, "/api/market")[1]["owner_operator"] is True
+    ctx.career.hangar.sell(ctx.db.hangar()[0].id)
+    m = get(api, "/api/market")[1]
+    assert m["owner_operator"] is False and m["jobs"] == []

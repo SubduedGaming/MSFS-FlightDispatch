@@ -168,7 +168,7 @@ function bubbles(box, data, who, handlers) {
           btn('Decline', () => handlers.decline(o.id)));
       } else {
         const tone = { completed: 'good', accepted: 'accent', active: 'accent', failed: 'bad' }[o.status] || 'muted';
-        row.append(h('b', { class: tone }, ({ accepted: 'Accepted', active: 'In progress', completed: 'Completed', failed: 'Failed', declined: 'Declined', expired: 'Expired' })[o.status] || o.status));
+        row.append(h('b', { class: tone }, ({ accepted: 'Assigned to you', active: 'In progress', completed: 'Completed', failed: 'Failed', declined: 'Declined', expired: 'Expired' })[o.status] || o.status));
       }
       box.append(h('div', { class: 'offer' }, h('div', { class: 't' }, '✈  ' + o.title), h('div', {}, m.content),
         o.aircraft ? h('div', { class: 'muted' }, 'Aircraft: ' + o.aircraft + '  ·  Deadline ' + o.deadline) : null, row));
@@ -206,7 +206,7 @@ function talkButton(getTarget) {
 
 // ------------------------------------------------------------------ app shell & routing
 const PAGES = [['dashboard', 'Dashboard'], ['jobboard', 'Job Board'], ['messenger', 'Messenger'], ['flight', 'Flight'],
-  ['market', 'Freelance'], ['hangar', 'Hangar'], ['logbook', 'Logbook'], ['finance', 'Finances'], ['settings', 'Settings']];
+  ['market', 'Freelance'], ['hangar', 'Hangar'], ['logbook', 'Logbook'], ['finance', 'Finances'], ['training', 'Training'], ['settings', 'Settings']];
 const ui = { thread: 'general', employer: null, jbTab: 'companies', hangarTab: 'fleet', aircraft: null, flightTab: 'copilot',
   job: null, q: '', kind: '', flyable: false, flight: null };
 let current = null, es = null, live = false, appState = null;
@@ -232,7 +232,7 @@ function showLogin(msg) {
 
 function buildShell() {
   const nav = h('nav', {}, h('div', { class: 'brand' }, '✈  SkyDispatch'),
-    PAGES.map(([k, label], i) => h('a', { href: '#/' + k, 'data-k': k, class: i === 8 ? 'settings-link' : '' }, label)),
+    PAGES.map(([k, label], i) => h('a', { href: '#/' + k, 'data-k': k, class: k === 'settings' ? 'settings-link' : '' }, label)),
     h('div', { class: 'spacer' }),
     h('div', { class: 'conn' }, h('span', { class: 'dot', id: 'd-live' }), h('span', { id: 't-live' }, 'Connecting…'), h('br', {}),
       h('span', { class: 'dot', id: 'd-sim' }), h('span', { id: 't-sim' }, 'Sim'), h('br', {}),
@@ -312,6 +312,7 @@ loaders.dashboard = async (root) => {
     s.update ? h('div', { class: 'banner' }, h('b', {}, 'SkyDispatch ' + s.update.version + ' is available.'),
       muted('Install it from the Windows PC (Help > Check for updates).'), h('a', { href: s.update.url, target: '_blank', rel: 'noopener' }, 'Release notes')) : null,
     h('h1', {}, d.hello), muted(d.sub), tiles(d.tiles),
+    d.alerts.length ? h('div', { class: 'card' }, d.alerts.map((a) => h('div', {}, h('span', { class: a.level === 'info' ? 'accent' : a.level }, '● '), a.text))) : null,
     h('div', { class: 'cols' },
       h('div', { class: 'card' }, h('h2', {}, 'Current contract'),
         d.job ? jobLine(d.job) : h('div', {}, h('b', {}, 'No active contract'),
@@ -336,18 +337,18 @@ loaders.jobboard = async (root) => {
   const showDetail = async () => {
     const e = await api('/api/employer/' + ui.employer);
     detail.replaceChildren(h('h2', {}, e.name), h('p', {}, e.blurb),
-      h('div', { class: 'kv' }, h('span', {}, 'Base'), e.base, h('span', {}, 'Work'), e.work, h('span', {}, 'Aircraft'), e.fleet, h('span', {}, 'Pay'), e.pay,
+      h('div', { class: 'kv' }, h('span', {}, 'Hiring'), e.hiring, h('span', {}, 'Base'), e.base, h('span', {}, 'Work'), e.work, h('span', {}, 'Aircraft'), e.fleet, h('span', {}, 'Pay'), e.pay,
         e.record ? [h('span', {}, 'Your record'), e.record] : null),
       h('h3', {}, 'Requirements'),
       e.checks.length ? h('div', { class: 'tablewrap checks' }, h('table', {}, h('thead', {}, h('tr', {}, ['Requirement', 'Needed', 'You have', ''].map((x) => h('th', {}, x)))),
         h('tbody', {}, e.checks.map((c) => h('tr', {}, h('td', {}, c.label), h('td', {}, c.required), h('td', {}, c.actual), h('td', { class: c.met ? 'ok' : 'no' }, c.met ? '✓' : '✗')))))) : muted('No requirements: they will train you.'),
       h('p', { class: e.employed ? 'good' : e.note ? 'warn' : e.meets ? 'good' : 'warn' },
-        e.employed ? 'You work here. Open the messenger to get flights.' : e.note ? e.note + '.' : e.meets ? 'You meet every requirement.' : "You don't meet every requirement yet. You can still apply, but you'll be turned down."),
+        e.employed ? 'You work here. Open the messenger and tell your dispatcher how long you have.' : e.note ? e.note + '.' : !e.can_apply ? e.hiring + '. Vacancies open from time to time; check back.' : e.meets ? 'You meet every requirement. Apply before the vacancy closes.' : "You don't meet every requirement yet. Applying now would be turned down and lock you out of this company for two weeks."),
       h('div', { class: 'row' },
         !e.employed ? btn('Apply', () => act(async () => {
           const r = await post('/api/employer/' + e.id + '/apply');
           notice(r.accepted ? 'Welcome to ' + r.company : r.company + ': application declined', r.message, () => { if (r.accepted) { ui.thread = r.thread; go('messenger'); } else reload(); });
-        }), 'primary', { disabled: !!e.note }) : null,
+        }), 'primary', { disabled: !e.can_apply }) : null,
         e.employed ? btn('Open messenger', () => { ui.thread = e.thread; go('messenger'); }, 'primary') : null,
         e.employed ? btn('Resign', () => { if (confirm('Resign from ' + e.name + '? Open flight offers will be withdrawn.')) act(async () => { await post('/api/employer/' + e.id + '/resign'); reload(); }); }, 'danger') : null));
   };
@@ -493,6 +494,12 @@ loaders.market = async (root) => {
   const q = h('input', { placeholder: 'Filter by airport or city…', value: ui.q }), kind = h('select', {});
   const flyable = h('input', { type: 'checkbox', checked: ui.flyable });
   const data0 = await api('/api/market');
+  if (data0.owner_operator === false) {
+    put(root, h('h1', {}, 'Freelance Contracts'), h('div', { class: 'card' }, h('p', {}, 'Freelance contracts are for pilots who own an aircraft: you choose the work and you pay for fuel and upkeep.'),
+      h('p', { class: 'muted' }, 'Buy an aircraft in the Hangar, or apply to a company on the Job Board and let their dispatcher assign your flights.'),
+      h('div', { class: 'row' }, btn('Open the Hangar', () => go('hangar'), 'primary'), btn('Open the Job Board', () => go('jobboard')))));
+    return;
+  }
   kind.append(h('option', { value: '' }, 'All types'), ...Object.entries(data0.kinds).map(([k, v]) => h('option', { value: k, selected: k === ui.kind }, v)));
   const loadList = async () => {
     const qs = new URLSearchParams({ q: ui.q, kind: ui.kind, flyable: ui.flyable ? '1' : '0' });
@@ -601,6 +608,24 @@ loaders.finance = async (root) => {
   const d = await api('/api/finance');
   put(root, h('h1', {}, 'Finances'), tiles(d.tiles), table([{ label: 'Date', get: (r) => r.date }, { label: 'Category', get: (r) => r.category }, { label: 'Description', get: (r) => r.description },
     { label: 'Amount', get: (r) => r.amount, num: true, tone: (r) => r.tone }, { label: 'Balance', get: (r) => r.balance, num: true }], d.rows));
+};
+
+loaders.training = async (root) => {
+  const d = await api('/api/training');
+  put(root, h('h1', {}, 'Training and licences'),
+    muted('Your licence and medical must be current to fly contracts. Ratings unlock companies and aircraft. Companies pay for the aircraft and fuel, but your life, your licences and your training are on you.'),
+    h('div', { class: 'card' }, h('h2', {}, 'Licence and medical'), d.certs.map((c) => h('div', { class: 'row', style: 'margin:6px 0' },
+      h('span', { class: c.valid ? '' : 'bad' }, c.label + ': ' + (c.valid ? 'valid until ' + c.expires + ' (' + c.days_left + ' days)' : 'EXPIRED (' + c.expires + ')')),
+      h('span', { class: 'grow' }), btn('Renew (' + c.fee + ')', () => act(async () => { await post('/api/training/renew', { kind: c.kind }); reload(); }), '', { disabled: !(c.can_renew && c.affordable), title: c.can_renew ? '' : 'You can renew in the last 30 days before it expires' })))),
+    h('div', { class: 'card' }, h('h2', {}, 'Ratings and courses'), d.courses.map((c) => {
+      const why = c.held || c.in_training ? '' : (c.problem || (c.affordable ? '' : "You can't afford this yet."));
+      return h('div', { class: 'row', style: 'margin:8px 0' },
+        h('div', { class: 'grow' }, h('b', { class: c.held ? 'good' : '' }, c.name + (c.held ? ': held' : c.in_training ? ': in training, finishes ' + c.finishes : '')),
+          c.held || c.in_training ? null : h('div', { class: 'muted' }, c.blurb), why ? h('div', { class: 'warn' }, why) : null),
+        c.held || c.in_training ? null : [muted(c.fee + ' | ' + c.duration), btn('Start course', () => act(async () => { await post('/api/training/start', { course_id: c.id }); reload(); }), c.can_start ? 'primary' : '', { disabled: !c.can_start })]);
+    }), d.employers.length ? muted('Your companies expect: ' + d.employers.map((e) => e.name + ' (' + (e.needs.join(', ') || 'no ratings') + ')').join('; ')) : null),
+    h('div', { class: 'card' }, h('h2', {}, 'Monthly costs'), d.bills.map((b) => h('div', { class: 'row' }, b.label, h('span', { class: 'grow' }), b.amount)),
+      h('div', { class: 'row' }, h('b', {}, 'Total every 30 days'), h('span', { class: 'grow' }), h('b', {}, d.total)), muted('Next bills: ' + d.next_due + '. ' + d.runway)));
 };
 
 loaders.settings = async (root) => {

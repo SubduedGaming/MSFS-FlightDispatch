@@ -6,6 +6,7 @@ so you need not own them (but they must be installed in your sim).
 """
 from __future__ import annotations
 
+import zlib
 from dataclasses import dataclass
 
 from .aircraft import get_type
@@ -37,6 +38,16 @@ class Employer:
 
     def fleet_types(self):
         return [t for t in (get_type(i) for i in self.fleet) if t]
+
+    @property
+    def icao(self) -> str:
+        """Three-letter ICAO airline designator (fictional), used for flight numbers and SimBrief."""
+        return AIRLINE_CODES.get(self.id, (self.id[:3].upper(), ""))[0]
+
+    @property
+    def callsign(self) -> str:
+        """The name used on the radio, e.g. 'Bluebird'."""
+        return AIRLINE_CODES.get(self.id, ("", self.name.split()[0]))[1]
 
 
 EMPLOYERS: list[Employer] = [
@@ -82,7 +93,28 @@ EMPLOYERS: list[Employer] = [
              Requirements(min_total_h=3500, min_recent_h=20, min_skill=78, type_req="category:airliner", min_type_h=400), 9),
 ]
 
+# (ICAO designator, radio callsign). These are made up for the game; change them here if one clashes with a real airline.
+AIRLINE_CODES: dict[str, tuple[str, str]] = {
+    "bluebird": ("BBA", "Bluebird"), "harbour": ("HLC", "Harbour"), "skyline": ("SKX", "Skyline"),
+    "alpine": ("ASF", "Alpine"), "coastline": ("CAM", "Coastline Medevac"), "northwind": ("NWF", "Northwind"),
+    "summit": ("SMX", "Summit"), "apex": ("APJ", "Apex"), "meridian": ("MRD", "Meridian"), "atlas": ("AGC", "Atlas Cargo"),
+}
+
 _BY_ID = {e.id: e for e in EMPLOYERS}
+
+
+def flight_number(origin: str, dest: str) -> int:
+    """A stable flight number for a route, the way scheduled airlines do it: the same route always has the same number,
+    and the opposite direction gets the next one up (outbound even, inbound odd)."""
+    a, b = sorted((origin.upper(), dest.upper()))
+    base = 100 + 2 * (zlib.crc32(f"{a}-{b}".encode()) % 440)
+    return base if origin.upper() == a else base + 1
+
+
+def flight_label(job) -> str:
+    """'BBA214' for a company flight; empty for a freelance contract (those fly under the pilot's own callsign)."""
+    e = _BY_ID.get(getattr(job, "employer_id", None) or "")
+    return f"{e.icao}{flight_number(job.origin, job.dest)}" if e else ""
 
 
 def get_employer(employer_id: str) -> Employer | None:

@@ -4,6 +4,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QAbstractItemView, QHBoxLayout, QHeaderView, QLabel, QMessageBox, QPushButton,
                                QTableWidget, QTableWidgetItem, QVBoxLayout)
 
+from ...data.employers import flight_label
 from .. import fmt
 from ..widgets import Card, StatTile, heading, muted
 from .base import Page
@@ -30,6 +31,10 @@ class DashboardPage(Page):
         for t in (self.t_balance, self.t_rep, self.t_hours, self.t_recent, self.t_skill, self.t_fleet):
             tiles.addWidget(t)
         root.addLayout(tiles)
+        self.alerts = QLabel("")
+        self.alerts.setWordWrap(True)
+        self.alerts.setTextFormat(Qt.RichText)
+        root.addWidget(self.alerts)
 
         mid = QHBoxLayout()
         mid.setSpacing(16)
@@ -121,12 +126,20 @@ class DashboardPage(Page):
         self.t_skill.setToolTip(f"Skill rating {pilot.skill:.0f}/100, rank {pilot.rank} ({pilot.xp} XP"
                                 + (f", {nxt} for next rank)" if nxt else ", max rank)"))
         self.t_fleet.set_value(str(len(self.db.hangar())))
+        from .. import theme
+        pal = theme.palette()
+        colours = {"bad": pal.bad, "warn": pal.warn, "good": pal.good, "info": pal.accent}
+        from html import escape
+        self.alerts.setText("<br>".join(f"<span style='color:{colours.get(a['level'], pal.text)}'>&#9679;</span> "
+                                        f"{escape(a['text'])}" for a in self.ctx.alerts()))
+        self.alerts.setVisible(bool(self.alerts.text()))
         job = self.db.active_job()
         if job:
             self.job_title.setText(f"<b>{job.title}</b>")
             aircraft = self.db.aircraft(job.aircraft_id) if job.aircraft_id else None
             who = job.client if job.employer_id else (aircraft.registration if aircraft else "no aircraft")
-            self.job_info.setText(f"{job.origin} to {job.dest}  |  {fmt.dist(s, job.distance_nm)}  |  "
+            fl = flight_label(job)
+            self.job_info.setText(f"{fl + '  |  ' if fl else ''}{job.origin} to {job.dest}  |  {fmt.dist(s, job.distance_nm)}  |  "
                                   f"pays {fmt.money(s, job.payout)}  |  {who}  |  {job.status}")
         else:
             self.job_title.setText("No active contract")

@@ -25,6 +25,16 @@ def distance_for_block(block_min: float, cruise_kts: float) -> float:
     return max(0.0, (block_min - GROUND_ALLOWANCE_MIN) / 60.0 * max(60.0, cruise_kts * 0.9))
 
 
+BASE_HOURLY_PAY = 160.0        # what a tier-1 bush operator pays per block hour, before its own pay factor
+
+
+def pilot_pay(employer: Employer, block_min: float, difficulty_mult: float = 1.0) -> float:
+    """What the company pays the pilot for a flight: an hourly rate that rises with the company's tier, not the
+    passengers' or cargo's revenue (which would make an airline flight pay tens of thousands)."""
+    rate = BASE_HOURLY_PAY * (1 + (employer.tier - 1) * 0.45) * employer.pay_factor * difficulty_mult
+    return rate * block_min / 60.0
+
+
 class NoFlightsAvailable(Exception):
     """Explains (in plain English) why the dispatcher cannot offer anything."""
 
@@ -124,8 +134,8 @@ class EmployerDispatch:
             dest, dist = rng.choices(pool, weights=weights, k=1)[0]
             kind = rng.choice(employer.kinds)
             pax, cargo = _pick_load(rng, kind, plane)
-            payout = job_payout(kind, dist, pax, cargo, diff) * employer.pay_factor
             block = estimate_block_minutes(dist, plane.cruise_kts)
+            payout = pilot_pay(employer, block, diff)
             jid = self.db.add_job(
                 kind=kind, title=self.gen._title(kind, origin, dest, pax, cargo), origin=origin.icao, dest=dest.icao,
                 distance_nm=round(dist, 1), pax=pax, cargo_lb=cargo, client=employer.name,

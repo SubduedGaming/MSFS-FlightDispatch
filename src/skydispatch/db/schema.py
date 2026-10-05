@@ -156,4 +156,28 @@ MIGRATIONS: list[str] = [
         snapshot TEXT NOT NULL DEFAULT ''
     );
     """,
+    # 3 -- hiring vacancies, licences/ratings, training ------------------------
+    """
+    CREATE TABLE vacancies (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        employer_id TEXT NOT NULL,
+        opened_at TEXT NOT NULL,
+        closes_at TEXT NOT NULL,
+        slots INTEGER NOT NULL DEFAULT 1,
+        status TEXT NOT NULL DEFAULT 'open'
+    );
+    CREATE INDEX idx_vacancy_employer ON vacancies(employer_id, status);
+    CREATE TABLE certificates (
+        kind TEXT PRIMARY KEY,
+        obtained_at TEXT NOT NULL,
+        expires_at TEXT
+    );
+    CREATE TABLE training (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        course_id TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        completes_at TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active'
+    );
+    """,
 ]

@@ -11,7 +11,10 @@ Accept contracts, fly them in the sim, get paid for how you fly, grow a hangar, 
 | **Job board** | Apply to ten companies on a career ladder, from a bush operator to a long-haul airline. They check your **total time, recent experience, skill level and hours on their aircraft**. Recent experience decays every day you don't fly. See [docs/CAREER.md](docs/CAREER.md). |
 | **Messenger** | Once hired, the company's dispatcher messages you. They ask **how long you have free** and offer flights that fit, as cards you accept or decline. |
 | **Copilot** | An AI first officer on the Flight tab: ask for advice by text or voice, run checklists, check fuel, plan the descent, brief the approach. It also makes callouts (positive rate, top of descent, 1000/500 ft, sink rate) and works offline. |
-| **Freelance contracts** | An open board of passenger, cargo, VIP charter, medevac and mail contracts for aircraft you own. |
+| **Freelance contracts** | For owner-operators: passenger, cargo, VIP charter, medevac and mail contracts for aircraft you own. |
+| **Careers with companies** | Ten companies on a ladder, each with its own dispatcher, voice, airline code and flight numbers. They recruit at random, a few days at a time; the dispatcher assigns your flights from the time you have. |
+| **Training and costs** | Licence and medical to renew, ratings to earn, monthly living costs and aircraft upkeep: the money has somewhere to go. |
+| **SimBrief and loadout** | Plan on SimBrief with your flight prefilled, import the plan, and load the sim aircraft's fuel and payload to match. |
 | **Only your aircraft** | Jobs only use aircraft that are **installed in your simulator**, detected automatically or chosen in Settings. |
 | **Automatic flight recording** | Connects to MSFS and records phases, takeoff and touchdown, landing rate, peak G, overspeed, fuel burn, distance, track and altitude profile into a local database. Free flights without a contract are logged too. |
 | **Scoring &amp; economy** | Grades every flight (landing, G-load, overspeed, deadline, fuel, bounces, slew/teleport detection) and pays accordingly. Operating costs, resale value, reputation, XP and ranks. |
@@ -57,7 +60,7 @@ skydispatch                                                 # or: python -m skyd
    - Just want a second screen? Turn on the *Browser remote* in Settings > Simulator and open it from any browser on your network ([guide](docs/REMOTE.md)).
    - macOS/Linux, or a second PC: turn on *Share flight data* in SkyDispatch on the Windows PC, then choose *SkyDispatch on my Windows PC* on the other computer ([guide](docs/SHARING.md)).
    - No sim handy? Choose the *simulated flight engine* and press **Start demo flight** on the Flight tab.
-4. Open **Job Board** and apply to **Bluebird Bush Air** (no requirements). Open **Messenger**, tell the dispatcher how long you have, and **Accept** a flight. (Or take a **Freelance** contract with your own aircraft.)
+4. Open **Job Board** and apply to **Bluebird Bush Air** (it is recruiting when you start; no requirements). Open **Messenger** and tell the dispatcher how long you have: they assign your flight. (Or, if you own an aircraft, take a **Freelance** contract.) Keep an eye on **Training**: bills and renewals fall due.
 5. In MSFS, start your engines. SkyDispatch starts the clock, flies along with you and pays out when you park at the destination. Ask the **Copilot** for help any time on the Flight tab.
 
 ## How the game works

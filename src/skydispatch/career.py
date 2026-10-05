@@ -8,12 +8,16 @@ from __future__ import annotations
 import logging
 import threading
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 from .core.config import Settings
 from .data.aircraft import AircraftType, get_type, match_title
 from .data.employers import Employer, get_employer
+from .economy import Economy
+from .jobs.hiring import Hiring
 from .pilot import quals as quals_mod
+from .pilot.credentials import RATING_LABEL, Credentials, rating_for_type
 from .sim.installed import is_installed
 from .jobs.employer_jobs import EmployerDispatch, usable_fleet
 from .db.database import Database, now_iso
@@ -64,6 +68,9 @@ class Career:
         self.hangar = HangarService(db)
         self.jobs = JobGenerator(db, settings)
         self.employer_dispatch = EmployerDispatch(db, settings)
+        self.credentials = Credentials(db, settings)       # licence, medical, ratings, training
+        self.economy = Economy(db, settings)               # monthly bills
+        self.hiring = Hiring(db, settings)                 # which companies are recruiting
         self._listeners: list[Listener] = []
         self._lock = threading.RLock()
         self.recorder: FlightRecorder | None = None
@@ -91,6 +98,10 @@ class Career:
         self.db.reset_career()
         self.db.create_pilot(name, callsign, home_icao, balance)
         self.hangar.starter_fleet(starter_type, home_icao)
+        self.credentials.ensure_defaults()
+        self.credentials.grant_for_aircraft(starter_type)          # the starter aircraft comes with its rating
+        self.economy.schedule()
+        self.hiring.seed()
         self.jobs.refresh()
         self._fire("career_started")
 
@@ -118,6 +129,10 @@ class Career:
             if not ok:
                 e.ok = False
                 e.reasons.append(why)
+            need = rating_for_type(t)
+            if need and not self.credentials.has(need):
+                e.ok = False
+                e.reasons.append(f"Needs the {RATING_LABEL[need].lower()} (see Training)")
             if not is_installed(a.type_id, self.settings, self.db):
                 e.ok = False
                 e.reasons.append(f"{t.name} is not installed in your simulator")
@@ -130,6 +145,9 @@ class Career:
             job = self.db.job(job_id)
             if not pilot or not job:
                 raise CareerError("Job not found")
+            grounded = self.credentials.grounded_reason()
+            if grounded:
+                raise CareerError(grounded)
             if job.status != "offered":
                 raise CareerError("That job is no longer available")
             if self.db.active_job():
@@ -145,6 +163,9 @@ class Career:
             else:
                 if pilot.reputation < job.min_reputation:
                     raise CareerError(f"Requires reputation {job.min_reputation:.0f} (you have {pilot.reputation:.0f})")
+                if not self.is_owner_operator():
+                    raise CareerError("Freelance contracts are for pilots who own an aircraft. Buy one in the "
+                                      "Hangar, or get hired by a company and let their dispatcher assign your flights.")
                 aircraft = self.db.aircraft(aircraft_id) if aircraft_id else None
                 if not aircraft or aircraft.sold:
                     raise CareerError("Pick an aircraft from your hangar")
@@ -190,8 +211,8 @@ class Career:
             else:
                 self.db.set_job(job.id, status="failed")
                 pilot = self.db.pilot()
-                if pilot:
-                    self.db.update_pilot(reputation=max(0.0, pilot.reputation - 1.0))
+                if pilot:                  # walking away from a flight a dispatcher rostered you on costs more
+                    self.db.update_pilot(reputation=max(0.0, pilot.reputation - (3.0 if job.employer_id else 1.0)))
                 self._disarm()
                 self._fire("job_abandoned", job=job)
                 self._fire("pilot_changed")
@@ -205,6 +226,7 @@ class Career:
         job = self.db.active_job()
         if job and not self.recorder:
             self._arm(job)
+        self.housekeeping()
 
     def _arm(self, job: Job) -> None:
         self._job = job
@@ -359,6 +381,29 @@ class Career:
     def qualifications(self):
         return quals_mod.compute(self.db, half_life_days=self.settings.game.recency_half_life_days)
 
+    def is_owner_operator(self) -> bool:
+        """Freelance contracts are only for pilots who own an aircraft."""
+        return bool(self.db.hangar())
+
+    def housekeeping(self, now: datetime | None = None) -> None:
+        """Real-time upkeep: vacancies open and close, ground school finishes, bills fall due, certificates near expiry.
+        Safe to call as often as you like."""
+        now = now or datetime.now(timezone.utc)
+        if not self.db.pilot():
+            return
+        self.credentials.ensure_defaults(now)
+        for eid in self.hiring.refresh(now):
+            self._fire("vacancy_opened", employer_id=eid)
+        for course in self.credentials.process(now):
+            self._fire("training_done", course=course)
+        charged = self.economy.process(now)
+        if charged:
+            self._fire("bills_charged", items=charged)
+            self._fire("pilot_changed")
+        for w in self.credentials.expiring(now):
+            self.credentials.mark_warned(w["kind"], w["state"])
+            self._fire("credential_expiring", **w)
+
     def employer_fleet_note(self, employer: Employer) -> str | None:
         """None when the pilot can fly for this company, otherwise why not (aircraft not installed)."""
         if usable_fleet(employer, self.settings, self.db):
@@ -372,11 +417,17 @@ class Career:
             raise CareerError("Unknown company")
         if self.db.is_employed_by(employer_id):
             raise CareerError(f"You already work for {employer.name}")
+        cooldown = self.hiring.cooldown_until(employer_id)
+        if cooldown:
+            raise CareerError(f"{employer.name} turned you down recently. You can apply again after {cooldown:%d %b}.")
+        if not self.hiring.open_vacancy(employer_id):
+            raise CareerError(f"{employer.name} is not recruiting right now. Vacancies open from time to time; "
+                              "the Job Board shows who is hiring.")
         note = self.employer_fleet_note(employer)
         if note:
             raise CareerError(f"{employer.name} can't take you on yet: {note.lower()}.")
         q = self.qualifications()
-        checks = quals_mod.check_requirements(employer.reqs, q)
+        checks = quals_mod.check_requirements(employer.reqs, q, employer)
         accepted = all(c.met for c in checks)
         if accepted:
             message = (f"Congratulations! {employer.name} is pleased to offer you a position as a pilot. "
@@ -386,9 +437,13 @@ class Career:
             short = [f"{c.label}: need {c.required}, you have {c.actual}" for c in checks if not c.met]
             message = (f"Thank you for applying to {employer.name}. We can't offer you a position yet. "
                        + "; ".join(short) + ". Please apply again when you meet these requirements.")
+        if not accepted:
+            until = self.hiring.reject(employer_id)
+            message += f" You can apply again after {until:%d %b}."
         self.db.add_application(employer_id, "accepted" if accepted else "rejected", message, q.to_json())
         if accepted:
             self.db.hire(employer_id)
+            self.hiring.fill(employer_id)
         result = ApplicationResult(employer, accepted, checks, message)
         self._fire("application_result", result=result)
         if accepted:

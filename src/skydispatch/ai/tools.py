@@ -16,6 +16,7 @@ from ..data.aircraft import CATALOG, get_type
 from ..data.employers import EMPLOYERS
 from ..pilot import quals as quals_mod
 from ..sim.installed import installed_types, is_installed
+from ..pilot.credentials import COURSES, CredentialError
 from ..hangar.service import HangarError, airworthiness, inspection_cost, repair_cost, resale_value
 from ..jobs.pricing import KIND_LABEL
 
@@ -35,13 +36,21 @@ TOOL_SCHEMAS: list[dict] = [
     _schema("get_status", "Pilot profile, balance, reputation, qualifications, current job, and live flight status."),
     _schema("get_qualifications", "The pilot's total hours, recent experience (decays while not flying), skill level, "
                                   "and hours by aircraft class."),
-    _schema("list_employers", "Companies on the job board with their requirements and whether the pilot qualifies."),
+    _schema("list_employers", "Companies on the job board with their requirements, whether the pilot qualifies and "
+                              "whether each one is recruiting right now (they only take applications during a vacancy)."),
+    _schema("get_training", "The pilot's licence and medical (with expiry dates), ratings, available training courses "
+                            "with fees, and their monthly bills."),
+    _schema("start_course", "Pay for and start a training course that earns a rating. Costs money.",
+            {"course_id": {"type": "string", "enum": [c.id for c in COURSES]}, "confirmed": _BOOL_CONFIRM},
+            ["course_id", "confirmed"]),
+    _schema("renew_credential", "Renew the pilot's licence or medical certificate. Costs money.",
+            {"kind": {"type": "string", "enum": ["licence", "medical"]}, "confirmed": _BOOL_CONFIRM},
+            ["kind", "confirmed"]),
     _schema("apply_to_employer", "Apply to a company on the job board (decided on the pilot's qualifications).",
             {"employer_id": {"type": "string"}}, ["employer_id"]),
-    _schema("set_availability", "Record how many minutes the pilot has free to fly and create flight offers that fit "
-                                "(company dispatcher chats only).", {"minutes": _INT}, ["minutes"]),
-    _schema("offer_flights", "Create new flight offers using the pilot's current free time (company dispatcher chats "
-                             "only).", {"count": _INT}),
+    _schema("set_availability", "Record how many minutes the pilot has free to fly and ASSIGN them one flight that fits "
+                                "(company dispatcher chats only). The pilot does not choose the flight.",
+            {"minutes": _INT}, ["minutes"]),
     _schema("list_jobs", "List open jobs on the job board. Optionally filter.",
             {"limit": {"type": "integer", "description": "Max jobs (default 6)"},
              "kind": {"type": "string", "enum": ["passenger", "cargo", "charter", "medevac", "mail"]},
@@ -70,7 +79,7 @@ TOOL_SCHEMAS: list[dict] = [
 ]
 
 
-EMPLOYER_ONLY = {"set_availability", "offer_flights"}
+EMPLOYER_ONLY = {"set_availability"}
 GENERAL_ONLY = {"list_employers", "apply_to_employer"}
 
 
@@ -99,7 +108,7 @@ class ToolBox:
             return {"error": f"Unknown tool '{name}'"}
         try:
             return fn(**{k: v for k, v in (args or {}).items()})
-        except (CareerError, HangarError) as exc:
+        except (CareerError, HangarError, CredentialError) as exc:
             return {"error": str(exc)}
         except TypeError as exc:
             return {"error": f"Bad arguments for {name}: {exc}"}
@@ -120,6 +129,13 @@ class ToolBox:
             "location": p.location_icao or p.home_icao, "skill": round(p.skill), "skill_level": p.skill_level,
             "active_job": None, "flight": None}
         q = self.career.qualifications()
+        out["ratings"] = sorted(q.ratings)
+        cr = self.career.credentials
+        out["licence_valid"], out["medical_valid"] = cr.valid("licence"), cr.valid("medical")
+        grounded = cr.grounded_reason()
+        if grounded:
+            out["grounded"] = grounded
+        out["monthly_bills"] = round(self.career.economy.monthly_total())
         out["recent_experience_hours"] = round(q.recent_h, 1)
         if q.days_since_last is not None:
             out["days_since_last_flight"] = round(q.days_since_last, 1)
@@ -132,8 +148,16 @@ class ToolBox:
                              "eta": None if live.eta_min is None else fmt_duration(live.eta_min)}
         return out
 
+    def _freelance_only_for_owners(self) -> dict | None:
+        if self._scope() == "freelance" and not self.career.is_owner_operator():
+            return {"error": "Freelance contracts are only for pilots who own an aircraft. They can buy one, or apply "
+                             "to a company and let its dispatcher assign flights."}
+        return None
+
     def t_list_jobs(self, limit: int = 6, kind: str | None = None, from_icao: str | None = None,
                     only_flyable: bool = False) -> dict:
+        if (blocked := self._freelance_only_for_owners()):
+            return blocked
         jobs = self.db.jobs("offered", scope=self._scope())
         rows = []
         for j in jobs:
@@ -170,6 +194,8 @@ class ToolBox:
                                     "problems": e.reasons} for a, e in self.career.eligible_aircraft(j)]}
 
     def t_accept_job(self, job_id: int, aircraft_id: int | None = None) -> dict:
+        if self.thread.startswith("employer:"):
+            return {"error": "Company flights are assigned by the dispatcher, not chosen. Use set_availability."}
         job = self.career.accept_job(int(job_id), int(aircraft_id) if aircraft_id is not None else None)
         return {"ok": True, "accepted": job.title, "aircraft_id": job.aircraft_id}
 
@@ -229,13 +255,40 @@ class ToolBox:
         q = self.career.qualifications()
         rows = []
         for e in EMPLOYERS:
-            checks = quals_mod.check_requirements(e.reqs, q)
+            checks = quals_mod.check_requirements(e.reqs, q, e)
             missing = [f"{c.label}: need {c.required}, have {c.actual}" for c in checks if not c.met]
             rows.append({"employer_id": e.id, "name": e.name, "tagline": e.tagline,
                          "fleet": [t.name for t in e.fleet_types()], "pay_factor": e.pay_factor,
                          "employed": self.db.is_employed_by(e.id), "qualifies": not missing,
-                         "missing": missing, "blocked": self.career.employer_fleet_note(e)})
+                         "missing": missing, "blocked": self.career.employer_fleet_note(e),
+                         "hiring": self.career.hiring.describe(e.id)})
         return {"employers": rows}
+
+    def t_get_training(self) -> dict:
+        cr, econ = self.career.credentials, self.career.economy
+        return {"certificates": [{"name": s["label"], "valid": s["valid"], "days_left": s["days_left"],
+                                  "renewal_fee": s["fee"], "can_renew_now": s["can_renew"]} for s in cr.status()],
+                "ratings": sorted(cr.ratings()),
+                "courses": [{"id": c.id, "name": c.name, "fee": cr.course_fee(c), "days": cr.course_days(c),
+                             "held": cr.has(c.id), "problem": None if cr.has(c.id) else cr.course_problem(c)}
+                            for c in COURSES],
+                "monthly_bills": [{"item": d, "amount": a} for d, a, _ in econ.monthly_items()]}
+
+    def t_start_course(self, course_id: str, confirmed: bool = False) -> dict:
+        if not confirmed:
+            return {"error": "Ask the pilot to confirm the course fee first"}
+        course = self.career.credentials.start_course(course_id)
+        self.career._fire("pilot_changed")
+        self.career._fire("credentials_changed")
+        return {"ok": True, "enrolled": course.name}
+
+    def t_renew_credential(self, kind: str, confirmed: bool = False) -> dict:
+        if not confirmed:
+            return {"error": "Ask the pilot to confirm the renewal fee first"}
+        fee = self.career.credentials.renew(kind)
+        self.career._fire("pilot_changed")
+        self.career._fire("credentials_changed")
+        return {"ok": True, "paid": fee}
 
     def t_apply_to_employer(self, employer_id: str) -> dict:
         r = self.career.apply_to_employer(employer_id)
@@ -245,14 +298,6 @@ class ToolBox:
         if not self.thread.startswith("employer:") or self.availability_cb is None:
             return {"error": "Only a company dispatcher can create flights from free time"}
         return self.availability_cb(self.thread, int(minutes))
-
-    def t_offer_flights(self, count: int = 3) -> dict:
-        if not self.thread.startswith("employer:") or self.availability_cb is None:
-            return {"error": "Only a company dispatcher can offer flights"}
-        v = self.db.get_meta(f"avail:{self.thread}")
-        if not v.isdigit():
-            return {"error": "Ask the pilot how long they have free first, then call set_availability"}
-        return self.availability_cb(self.thread, int(v))
 
     def t_buy_aircraft(self, type_id: str, location_icao: str, confirmed: bool = False) -> dict:
         if not confirmed:

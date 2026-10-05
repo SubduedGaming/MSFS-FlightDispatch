@@ -27,6 +27,7 @@ def test_parse_duration_rejects_non_durations():
 
 
 def test_apply_accepted_and_rejected(career):
+    career.hiring.open("skyline", 5)                                   # companies only take applications while recruiting
     r = career.apply_to_employer("bluebird")
     assert r.accepted and career.db.is_employed_by("bluebird")
     with pytest.raises(CareerError):
@@ -35,12 +36,17 @@ def test_apply_accepted_and_rejected(career):
     assert not r2.accepted and "Total flight time" in r2.message
     assert not career.db.is_employed_by("skyline")
     assert [a["status"] for a in career.db.applications()] == ["rejected", "accepted"]
+    with pytest.raises(CareerError, match="again after"):               # a rejection locks you out for a while
+        career.apply_to_employer("skyline")
+    career.db.set_meta("hire_cooldown:skyline", "")
+    career.hiring.open("skyline", 5)
     quals.apply_experience_preset(career.db, "commercial", days_ago=3)
     assert career.apply_to_employer("skyline").accepted
 
 
 def test_cannot_apply_when_fleet_not_installed(career):
     career.settings.sim.installed_aircraft = format_ids({"c172"})
+    career.hiring.open("skyline", 5)
     assert career.employer_fleet_note(get_employer("skyline"))         # DA40/SR22 missing
     with pytest.raises(CareerError, match="not.*installed|installed"):
         career.apply_to_employer("skyline")

@@ -20,7 +20,7 @@ from ..career import CareerError
 from ..copilot.copilot import QUICK_ACTIONS, THREAD as COPILOT_THREAD
 from ..copilot.personas import get_copilot
 from ..data.aircraft import CATALOG, get_type
-from ..data.employers import EMPLOYERS, get_employer
+from ..data.employers import EMPLOYERS, flight_label, get_employer
 from ..flight.scoring import landing_label
 from ..hangar.service import HangarError, airworthiness, inspection_cost, repair_cost, resale_value
 from ..jobs.pricing import KIND_LABEL
@@ -232,7 +232,7 @@ class RemoteApi:
                      "hint": "No flights yet." if days is None else f"Last flight: {days:.0f} days ago."},
                     {"label": "Skill", "value": pilot.skill_level, "hint": f"Skill rating {pilot.skill:.0f}/100"},
                     {"label": "Fleet", "value": str(len(self.db.hangar()))}],
-                "job": self._job_card(job),
+                "job": self._job_card(job), "alerts": self.ctx.alerts(),
                 "systems": {"sim": f"{s.sim.mode}: {prov.status if prov else 'disconnected'}",
                             "ai": "online" if online else "offline" if online is False else "not checked yet",
                             "voice": f"speech out {'ready' if tts_ok else 'unavailable'}, "
@@ -267,6 +267,22 @@ class RemoteApi:
             err = self.ctx.demo_fly_active_job()
             if err:
                 raise ApiError(400, err)
+            return {"ok": True}
+
+        # ------------------------------------------------------------ training, licences and costs
+        @r("GET", "/api/training")
+        def training(q, body):
+            self._pilot()
+            return self.ctx.training_summary()
+
+        @r("POST", "/api/training/start")
+        def training_start(q, body):
+            self.ctx.start_course(str(body.get("course_id", "")))
+            return {"ok": True}
+
+        @r("POST", "/api/training/renew")
+        def training_renew(q, body):
+            self.ctx.renew_credential(str(body.get("kind", "")))
             return {"ok": True}
 
         # ------------------------------------------------------------ flight plan and loadout
@@ -463,6 +479,8 @@ class RemoteApi:
         @r("GET", "/api/market")
         def market(q, body):
             self._pilot()
+            if not self.career.is_owner_operator():
+                return {"jobs": [], "kinds": KIND_LABEL, "busy": False, "owner_operator": False}
             text, kind = (q.get("q") or "").strip().lower(), q.get("kind") or ""
             only_flyable = q.get("flyable") == "1"
             jobs = []
@@ -480,7 +498,7 @@ class RemoteApi:
                 jobs.append(j)
             jobs.sort(key=lambda j: -j.payout)
             return {"jobs": [self._job_json(j) for j in jobs], "kinds": KIND_LABEL,
-                    "busy": self.db.active_job() is not None}
+                    "busy": self.db.active_job() is not None, "owner_operator": True}
 
         @r("GET", "/api/market/<jid>")
         def market_job(jid, q, body):
@@ -719,17 +737,28 @@ class RemoteApi:
         who = job.client if job.employer_id else (aircraft.registration if aircraft else "no aircraft")
         plane = (f"{t.name} (company aircraft)" if job.employer_id and t else
                  f"{t.name} {aircraft.registration}" if t and aircraft else "")
-        return {"id": job.id, "title": job.title, "origin": job.origin, "dest": job.dest,
-                "info": f"{job.origin} to {job.dest}  |  {fmt.dist(s, job.distance_nm)}  |  "
+        flight = flight_label(job)
+        return {"id": job.id, "title": job.title, "origin": job.origin, "dest": job.dest, "flight": flight,
+                "info": f"{(flight + '  |  ') if flight else ''}{job.origin} to {job.dest}  |  {fmt.dist(s, job.distance_nm)}  |  "
                         f"pays {fmt.money(s, job.payout)}  |  {who}  |  {job.status}",
-                "line": f"{job.origin} to {job.dest}  |  pays {fmt.money(s, job.payout)}  |  {plane}"}
+                "line": f"{(flight + '  |  ') if flight else ''}{job.origin} to {job.dest}  |  pays "
+                        f"{fmt.money(s, job.payout)}  |  {plane}"}
 
     def _employer_json(self, e, qual, detail: bool) -> dict:
         employed = self.db.is_employed_by(e.id)
         note = self.career.employer_fleet_note(e)
         meets = quals.meets(e, qual)
-        state, tone = (("Employed", "good") if employed else ("Aircraft not installed", "muted") if note
-                       else ("You qualify", "accent") if meets else ("Not yet qualified", "warn"))
+        hs = self.career.hiring.state(e.id)
+        if employed:
+            state, tone = "Employed", "good"
+        elif note:
+            state, tone = "Aircraft not installed", "muted"
+        elif hs["state"] == "cooldown":
+            state, tone = f"Apply again after {hs['until']:%d %b}", "warn"
+        elif hs["state"] == "closed":
+            state, tone = "Not recruiting", "muted"
+        else:
+            state, tone = ("Recruiting - you qualify", "accent") if meets else ("Recruiting - not yet qualified", "warn")
         out = {"id": e.id, "name": e.name, "tagline": e.tagline, "state": state, "tone": tone, "employed": employed}
         if not detail:
             return out
@@ -739,11 +768,13 @@ class RemoteApi:
             "blurb": e.blurb, "base": e.base, "work": ", ".join(KIND_LABEL[k] for k in e.kinds),
             "fleet": ", ".join(t.name + ("" if installed is None or t.id in installed else " (not installed)")
                                for t in e.fleet_types()),
-            "pay": f"{e.pay_factor:.0%} of standard, company covers fuel and running costs",
+            "pay": f"{e.pay_factor:.0%} of standard. The company covers fuel and aircraft costs; your licence, "
+                   "training and living costs are yours.",
+            "hiring": self.career.hiring.describe(e.id), "can_apply": hs["state"] == "open" and not note and not employed,
             "record": (f"{emp['flights']} flights, {fmt.duration(emp['minutes'])}, "
                        f"{fmt.money(self.settings, emp['earned'])} earned") if emp and emp["status"] == "active" else "",
             "checks": [{"label": c.label, "required": c.required, "actual": c.actual, "met": c.met}
-                       for c in quals.check_requirements(e.reqs, qual)],
+                       for c in quals.check_requirements(e.reqs, qual, e)],
             "note": note, "meets": meets, "thread": employer_thread(e.id)})
         return out
 

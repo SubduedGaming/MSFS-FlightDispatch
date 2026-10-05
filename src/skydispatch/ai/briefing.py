@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from ..core.geo import bearing_deg, fmt_duration
 from ..data.aircraft import get_type
+from ..data.employers import flight_label
 from ..db.database import Database
 from ..db.models import HangarAircraft, Job
 from ..jobs.pricing import estimate_block_minutes
@@ -48,7 +49,8 @@ def offer_summary(db: Database, job: Job) -> str:
     load = f"{job.pax} passenger{'s' if job.pax != 1 else ''}" if job.pax else f"{job.cargo_lb:,} lb of cargo"
     block = fmt_duration(estimate_block_minutes(job.distance_nm, t.cruise_kts)) if t else "?"
     plane = f" in the {t.name}" if t else ""
-    return (f"{job.origin} to {job.dest}, {job.distance_nm:.0f} nm, about {block} block time. "
+    flight = flight_label(job)
+    return (f"{flight + ': ' if flight else ''}{job.origin} to {job.dest}, {job.distance_nm:.0f} nm, about {block} block time. "
             f"{load.capitalize()}. Pays {job.payout:,.0f}{plane}.")
 
 

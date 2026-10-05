@@ -23,6 +23,7 @@ from .pages.messenger import MessengerPage
 from .pages.logbook import LogbookPage
 from .pages.market import MarketPage
 from .pages.settings import SettingsPage
+from .pages.training import TrainingPage
 from .widgets import StatusDot, Toast
 
 log = logging.getLogger(__name__)
@@ -67,7 +68,7 @@ class MainWindow(QMainWindow):
                 ("messenger", "Messenger", MessengerPage), ("flight", "Flight", FlightPage),
                 ("market", "Freelance", MarketPage), ("hangar", "Hangar", HangarPage),
                 ("logbook", "Logbook", LogbookPage), ("finance", "Finances", FinancePage),
-                ("settings", "Settings", SettingsPage)]
+                ("training", "Training", TrainingPage), ("settings", "Settings", SettingsPage)]
         for key, label, cls in defs:
             page = cls(ctx)
             self.pages[key] = page
@@ -164,7 +165,7 @@ class MainWindow(QMainWindow):
             dlg = FlightResultDialog(self.ctx, payload["settlement"], self)
             dlg.setModal(False)
             dlg.show()
-        for key in ("logbook", "hangar", "market", "dashboard", "finance", "jobboard"):
+        for key in ("logbook", "hangar", "market", "dashboard", "finance", "jobboard", "training"):
             if self.stack.currentWidget() is not self.pages[key]:
                 if hasattr(self.pages[key], "refresh"):
                     QTimer.singleShot(0, self.pages[key].refresh)       # refresh() ignores calls after shutdown
@@ -199,7 +200,7 @@ class MainWindow(QMainWindow):
         for i, (key, label) in enumerate([("dashboard", "Dashboard"), ("jobboard", "Job Board"),
                                           ("messenger", "Messenger"), ("flight", "Flight"), ("market", "Freelance"),
                                           ("hangar", "Hangar"), ("logbook", "Logbook"), ("finance", "Finances"),
-                                          ("settings", "Settings")], start=1):
+                                          ("training", "Training"), ("settings", "Settings")], start=1):
             v.addAction(self._act(label, lambda k=key: self.goto(k), f"Ctrl+{i}"))
         v.addSeparator()
         v.addAction(self._act("Toggle light/dark theme", self._toggle_theme))

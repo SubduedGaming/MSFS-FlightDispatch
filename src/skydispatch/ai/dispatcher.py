@@ -11,7 +11,7 @@ import re
 import threading
 from typing import Any
 
-from ..career import Career
+from ..career import Career, CareerError
 from ..core.config import Settings
 from ..data.employers import Employer, get_employer
 from ..db.models import Job
@@ -97,14 +97,19 @@ class Dispatcher:
             prompt += (
                 f"You dispatch for {employer.name} ({employer.tagline}). {employer.blurb} Company fleet: "
                 f"{', '.join(t.name for t in employer.fleet_types())}. The pilot flies company aircraft, which need no "
-                "hangar. YOUR JOB: give the pilot flights that fit the time they have free. "
+                "hangar. YOUR JOB: assign the pilot ONE flight that fits the time they have free. The pilot does not "
+                "choose the flight, you do, and they cannot decline it: they fly it, or abandon it (which costs "
+                "reputation). "
                 + (f"They said they have about {avail} minutes free. " if avail else
-                   "You do not yet know how long they have, so ask how long they have free before offering flights. ")
-                + "When they tell you a duration, call set_availability, then summarise the offers briefly (the "
-                  "offer cards are shown automatically). Never name flights that tools did not return.\n")
+                   "You do not yet know how long they have, so ask how long they have free before assigning a flight. ")
+                + "When they tell you a duration, call set_availability, which assigns the flight, then say so briefly "
+                  "(the flight card is shown automatically). Never name flights that tools did not return.\n")
         else:
-            prompt += ("This is the pilot's own operations desk: freelance contracts, their hangar, and the job board "
-                       "of companies they can apply to (list_employers / apply_to_employer).\n")
+            prompt += ("This is the pilot's own operations desk: freelance contracts (only for pilots who own an aircraft), "
+                       "their hangar, training and licences (get_training), and the job board of companies they can apply "
+                       "to (list_employers / apply_to_employer). Companies only take applications while they are "
+                       "recruiting, so check list_employers before suggesting one. Money-spending training or renewals "
+                       "need the pilot's explicit confirmation.\n")
         prompt += f"CURRENT STATE: {json.dumps(facts)}\nHANGAR: {home_fleet}\n"
         if with_tool_protocol:
             names = "\n".join(f"- {s['function']['name']}: {s['function']['description']} "
@@ -153,41 +158,55 @@ class Dispatcher:
         self.say((lead_in + " " if lead_in else "") + question, thread, kind="ask_time")
 
     def handle_availability(self, thread: str, minutes: int, announce: bool = True) -> dict:
-        """Record the pilot's free time and create flight offers that fit it. Returns a summary dict."""
+        """Record the pilot's free time and ASSIGN them one flight that fits it (the pilot does not pick).
+        Returns a summary dict, or {'error': ...} when no flight could be assigned."""
         employer = thread_employer(thread)
         if employer is None:
             return {"error": "Availability only applies to a company dispatcher"}
         minutes = int(max(10, min(minutes, 24 * 60)))
+        label = _fmt_minutes(minutes)
         self.db.set_meta(f"avail:{thread}", str(minutes))
         self.db.set_meta(f"await:{thread}", "0")
+        grounded = self.career.credentials.grounded_reason()
+        if grounded:
+            if announce:
+                self.say(f"{label}, understood, but I can't roster you. {grounded}", thread)
+            return {"error": grounded}
+        if self.db.active_job():
+            msg = "You already have a flight assigned. Fly it or abandon it, and then I'll roster the next one."
+            if announce:
+                self.say(msg, thread)
+            return {"error": msg}
         for j in self.db.jobs("offered", scope=employer.id):
             self.db.set_job(j.id, status="expired")
-        label = _fmt_minutes(minutes)
         try:
-            jobs = self.career.employer_dispatch.offer_flights(employer, minutes, 3)
-        except NoFlightsAvailable as exc:
+            job = self.career.employer_dispatch.offer_flights(employer, minutes, 1)[0]
+            self.career.accept_job(job.id)                     # the flight is rostered, not offered
+        except (NoFlightsAvailable, CareerError) as exc:
             self.db.set_meta(f"await:{thread}", "1")
+            for j in self.db.jobs("offered", scope=employer.id):
+                self.db.set_job(j.id, status="expired")
             if announce:
                 self.say(f"{label}, understood. {exc}", thread, kind="ask_time")
             return {"error": str(exc)}
+        job = self.db.job(job.id)
         if announce:
-            self.say(self._offer_intro(thread, minutes, jobs), thread)
-        for j in jobs:
-            self.say(B.offer_summary(self.db, j), thread, kind="offer", payload={"job_id": j.id})
-        return {"minutes": minutes, "offers": [{"job_id": j.id, "summary": B.offer_summary(self.db, j)} for j in jobs]}
+            self.say(self._assign_intro(thread, minutes, job), thread)
+        summary = B.offer_summary(self.db, job)
+        self.say(summary, thread, kind="offer", payload={"job_id": job.id})
+        return {"minutes": minutes, "assigned": {"job_id": job.id, "summary": summary}}
 
     def _tool_availability(self, thread: str, minutes: int) -> dict:
         return self.handle_availability(thread, minutes, announce=False)
 
-    def _offer_intro(self, thread: str, minutes: int, jobs: list[Job]) -> str:
-        n = len(jobs)
-        fallback = (f"{_fmt_minutes(minutes)} - got it. I have {n} flight{'s' if n != 1 else ''} that "
-                    f"fit{'s' if n == 1 else ''} your window. Take a look:")
-        facts = [B.offer_summary(self.db, j) for j in jobs]
+    def _assign_intro(self, thread: str, minutes: int, job: Job) -> str:
+        fallback = (f"{_fmt_minutes(minutes)} - got it. I've rostered you on this one. "
+                    "Your briefing is coming through now.")
         text = self._llm_oneshot(
-            f"The pilot told you they have {_fmt_minutes(minutes)} free. You are offering these flights (shown as cards "
-            f"below your message): {json.dumps(facts)}. Say one or two short sentences introducing them. Do not "
-            "repeat the details.", max_tokens=80, persona=self.persona_for(thread))
+            f"The pilot told you they have {_fmt_minutes(minutes)} free. You have just assigned them this flight "
+            f"(shown as a card below your message): {json.dumps(B.offer_summary(self.db, job))}. Say one or two short "
+            "sentences telling them it is their flight. Do not repeat the details and do not offer alternatives.",
+            max_tokens=80, persona=self.persona_for(thread))
         return text or fallback
 
     def accept_offer(self, job_id: int, thread: str) -> Job:

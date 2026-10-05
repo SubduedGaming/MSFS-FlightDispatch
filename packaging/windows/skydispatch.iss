@@ -1,7 +1,7 @@
 ; Inno Setup 6 script: GUI installer + uninstaller for SkyDispatch (Windows 10/11, 64-bit).
-; Build: ISCC /DAppVersion=1.3.0 packaging\windows\skydispatch.iss   (or: python packaging/build.py)
+; Build: ISCC /DAppVersion=1.4.0 packaging\windows\skydispatch.iss   (or: python packaging/build.py)
 #ifndef AppVersion
-  #define AppVersion "1.3.0"
+  #define AppVersion "1.4.0"
 #endif
 #define AppName "SkyDispatch"
 #define AppExe "SkyDispatch.exe"

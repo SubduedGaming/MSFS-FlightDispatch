@@ -6,6 +6,7 @@ import logging
 import os
 import secrets
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QThreadPool, QTimer, Signal
@@ -14,6 +15,8 @@ from ..ai.dispatcher import EVENT_IMPORTANCE, Dispatcher, employer_thread, threa
 from ..ai.llm import LLMError
 from ..ai.personas import HR_VOICE, get_persona
 from ..career import ApplicationResult, Career, CareerError, Settlement
+from ..pilot import quals as quals_mod
+from ..pilot.credentials import COURSES, CredentialError, required_ratings
 from ..copilot.copilot import CoPilot
 from ..copilot.personas import get_copilot
 from ..core.config import Settings
@@ -24,6 +27,7 @@ from ..sim.bridge_server import BridgeHost
 from ..sim.factory import make_provider
 from ..sim.installed import detect_installed, format_ids, parse_ids, searched_locations
 from ..sim.simulated import SimulatedProvider
+from ..data.employers import flight_label, flight_number, get_employer
 from ..planning import simbrief
 from ..planning.loadout import LoadoutError, compare, plan_loadout, ready_problem
 from . import fmt
@@ -257,8 +261,11 @@ class AppContext(QObject):
         job, atype, aircraft = jc
         pilot = self.db.pilot()
         units = "KGS" if self.settings.ui.units_weight == "kg" else "LBS"
+        employer = get_employer(job.employer_id) if job.employer_id else None
         return simbrief.dispatch_url(job, atype, aircraft.registration if aircraft else "",
-                                     pilot.callsign if pilot else "", f"sd{job.id}", units)
+                                     pilot.callsign if pilot else "", f"sd{job.id}", units,
+                                     employer.icao if employer else "",
+                                     flight_number(job.origin, job.dest) if employer else "")
 
     def import_simbrief(self) -> None:
         """Fetch the newest SimBrief plan and keep it if it is for the active job."""
@@ -356,7 +363,7 @@ class AppContext(QObject):
         s, ofp, plan = self.settings, self.current_ofp(), self.loadout_plan()
         status = compare(plan, self.provider.latest() if self.provider else None)
         out: dict = {"has_job": True, "user_set": bool(s.plan.simbrief_user.strip()), "auto": s.plan.auto_sync_loadout,
-                     "ofp": None, "sim": None, "can_refuel": False}
+                     "ofp": None, "sim": None, "can_refuel": False, "flight": flight_label(job)}
         if ofp:
             pdf = ofp.pdf_url if ofp.pdf_url and simbrief.is_trusted_link(ofp.pdf_url) else ""
             out["ofp"] = {"route": f"{ofp.origin} {ofp.route} {ofp.dest}".strip(),
@@ -375,6 +382,85 @@ class AppContext(QObject):
             out["sim"] = {"fuel": f"{status.sim_fuel_gal:.0f} gal", "payload": fmt.weight(s, status.sim_payload_lb),
                           "matches": status.matches, "fuel_ok": status.fuel_ok, "payload_ok": status.payload_ok}
         return out
+
+    def alerts(self) -> list[dict]:
+        """Things the pilot should know about right now: [{'level': good|info|warn|bad, 'text': ...}]."""
+        out: list[dict] = []
+        pilot, cr, econ, s = self.db.pilot(), self.career.credentials, self.career.economy, self.settings
+        if not pilot:
+            return out
+        cur = s.ui.currency
+        grounded = cr.grounded_reason()
+        if grounded:
+            out.append({"level": "bad", "text": grounded})
+        for st in cr.status():
+            if st["valid"] and st["days_left"] is not None and st["days_left"] <= 14:
+                out.append({"level": "warn", "text": f"Your {st['label'].lower()} expires in {st['days_left']} days "
+                                                     f"(renewal {cur}{st['fee']:,.0f})."})
+        active = cr.active_course()
+        if active:
+            out.append({"level": "info", "text": f"In training: {active[0].name}, finishes {active[1]:%d %b}."})
+        due, total = econ.next_due(), econ.monthly_total()
+        if due and total:
+            days = (due - datetime.now(timezone.utc)).days
+            if pilot.balance < total:
+                out.append({"level": "warn", "text": f"Bills of {cur}{total:,.0f} fall due on {due:%d %b} and your balance "
+                                                     f"is {cur}{pilot.balance:,.0f}."})
+            elif days <= 7:
+                out.append({"level": "info", "text": f"Bills of {cur}{total:,.0f} fall due on {due:%d %b}."})
+        return out
+
+    def training_summary(self) -> dict:
+        """Licence, medical, ratings, courses and the monthly bills, as text for the Training page."""
+        s, cr, econ = self.settings, self.career.credentials, self.career.economy
+        pilot = self.db.pilot()
+        cur = s.ui.currency
+        money = lambda v: f"{cur}{v:,.0f}"
+        active = cr.active_course()
+        certs = [{"kind": st["kind"], "label": st["label"], "valid": st["valid"], "can_renew": st["can_renew"],
+                  "expires": f"{st['expires']:%d %b %Y}" if st["expires"] else "-", "days_left": st["days_left"],
+                  "fee": money(st["fee"]), "affordable": bool(pilot and pilot.balance >= st["fee"])}
+                 for st in cr.status()]
+        courses = []
+        for c in COURSES:
+            held = cr.has(c.id)
+            fee = cr.course_fee(c)
+            problem = None if held else cr.course_problem(c)
+            courses.append({"id": c.id, "name": c.name, "blurb": c.blurb, "fee": money(fee),
+                            "duration": f"{cr.course_days(c):g} days", "held": held,
+                            "in_training": bool(active and active[0].id == c.id),
+                            "finishes": f"{active[1]:%d %b}" if active and active[0].id == c.id else "",
+                            "problem": problem, "affordable": bool(pilot and pilot.balance >= fee),
+                            "can_start": not held and problem is None and bool(pilot and pilot.balance >= fee)})
+        items = econ.monthly_items()
+        total = sum(a for _, a, _ in items)
+        due = econ.next_due()
+        months = (pilot.balance / total) if pilot and total else 0.0
+        return {"certs": certs, "courses": courses, "bills": [{"label": d, "amount": money(a)} for d, a, _ in items],
+                "total": money(total), "next_due": f"{due:%d %b %Y}" if due else "-",
+                "runway": f"Your balance covers about {max(0.0, months):.1f} months of bills." if total else "",
+                "employers": [{"name": e.name, "needs": [r for r in required_ratings(e)]}
+                              for e in (get_employer(x["employer_id"]) for x in self.db.employments()) if e]}
+
+    def renew_credential(self, kind: str) -> None:
+        try:
+            fee = self.career.credentials.renew(kind)
+        except CredentialError as exc:
+            self.toast.emit("warn", str(exc))
+            return
+        self.toast.emit("good", f"Renewed for {self.settings.ui.currency}{fee:,.0f}.")
+        self.career._fire("pilot_changed")
+        self.career._fire("credentials_changed")
+
+    def start_course(self, course_id: str) -> None:
+        try:
+            course = self.career.credentials.start_course(course_id)
+        except CredentialError as exc:
+            self.toast.emit("warn", str(exc))
+            return
+        self.toast.emit("good", f"Enrolled in the {course.name}. You'll be notified when you pass.")
+        self.career._fire("pilot_changed")
+        self.career._fire("credentials_changed")
 
     def refuel_to_plan(self) -> None:
         """Top the hangar aircraft up to the SimBrief block fuel (paying for it), then it can be loaded."""
@@ -563,6 +649,45 @@ class AppContext(QObject):
         elif name == "hired":
             employer = payload["employer"]
             self.toast.emit("good", f"You're hired at {employer.name}! Check your messenger.")
+        elif name == "vacancy_opened":
+            self._vacancy_opened(payload["employer_id"])
+        elif name == "training_done":
+            c = payload["course"]
+            self._ops_note(f"Congratulations, Captain: you've passed the {c.name}. It's on your licence now and counts "
+                           "for any company that asks for it.", "good")
+        elif name == "bills_charged":
+            total = sum(a for _, a in payload["items"])
+            pilot = self.db.pilot()
+            msg = f"Monthly bills paid: {self.settings.ui.currency}{total:,.0f}."
+            if pilot and pilot.balance < 0:
+                self._ops_note(msg + f" Your balance is now {self.settings.ui.currency}{pilot.balance:,.0f}. Fly some "
+                               "paid flights to get back in the black.", "bad")
+            else:
+                self.toast.emit("info", msg)
+        elif name == "credential_expiring":
+            label = payload["label"].lower()
+            if payload["state"] == "expired":
+                self._ops_note(f"Your {label} has expired, so you can't take contracts or be rostered until you renew it "
+                               "in Training.", "bad")
+            else:
+                self._ops_note(f"Your {label} expires in {payload['days_left']} days. You can renew it in Training.", "warn")
+
+    def _ops_note(self, text: str, level: str = "info") -> None:
+        """A note from your operations desk: kept in the general conversation and shown as a notification."""
+        self.db.add_message("assistant", text, "general")
+        self.thread_changed.emit("general")
+        self.toast.emit(level, text)
+
+    def _vacancy_opened(self, employer_id: str) -> None:
+        """Tell the pilot when a company they could actually join starts recruiting (others are visible on the board)."""
+        employer = get_employer(employer_id)
+        if employer is None or self.db.is_employed_by(employer_id) or self.career.employer_fleet_note(employer):
+            return
+        if not quals_mod.meets(employer, self.career.qualifications()):
+            return
+        until = self.career.hiring.state(employer_id)["until"]
+        self._ops_note(f"{employer.name} is recruiting pilots until {until:%d %b}, and you meet their requirements. "
+                       "Apply on the Job Board.", "info")
 
     def _ai_task(self, fn, thread: str, kind: str, important: bool = True, then=None) -> None:
         def done(text):
@@ -721,6 +846,7 @@ class AppContext(QObject):
             return
         try:
             self.career.flush_telemetry()
+            self.career.housekeeping()
             self.db.expire_jobs()
             if self.db.pilot() and len(self.db.jobs("offered")) < max(3, self.settings.game.job_count // 3):
                 self.career.refresh_market()

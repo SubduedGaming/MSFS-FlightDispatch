@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.4.0
+- **The career now has a point to the money.** Being employed no longer means you pay for nothing:
+  - **Training:** a new Training page. Your licence (a year) and medical (90 days) must be current to fly contracts and
+    cost money to renew. Ratings (instrument, multi-engine, turboprop, jet, airline) are earned by paying for a course
+    that takes real days; companies and your own aircraft require them.
+  - **Monthly bills** every 30 days: living costs by rank, plus hangar and insurance for each aircraft you own. At most
+    two months are charged after a long break. Dashboard alerts warn you about expiries and bills.
+  - Pilots from earlier versions keep the ratings they already use. Starter aircraft and starting experience bring theirs.
+- **Companies recruit in bursts.** You can only apply while a company has a vacancy open (random, a few days each); a
+  rejection locks you out of that company for two weeks. The Job Board shows who is recruiting, and your operations desk
+  tells you when a company you qualify for opens one.
+- **The dispatcher assigns your flight.** Tell them how long you have and they roster one flight that fits: no accept or
+  decline. Abandoning a rostered flight costs more reputation. You cannot be rostered with an expired licence or medical.
+- **Freelance contracts are for owner-operators** (pilots who own an aircraft).
+- **Company pay is an hourly rate** that rises with the company's tier, instead of cargo and passenger revenue (an
+  airline flight used to pay tens of thousands).
+- **Airlines have ICAO codes and flight numbers** (for example BBA214). The same route always has the same number, and
+  SimBrief's dispatch page is prefilled with the airline code and flight number.
+
 ## 1.3.0
 - **Installed aircraft detection fixed** for the Microsoft Store/Xbox install of MSFS 2024: packages behind the
   LocalCache junction are now found through the junction's real target, and AI-traffic packages (FSLTL and similar)

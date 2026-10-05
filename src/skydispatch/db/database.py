@@ -398,7 +398,9 @@ class Database:
     # ------------------------------------------------------------------- reset
     def reset_career(self) -> None:
         with self.tx() as c:
-            c.execute("DELETE FROM meta WHERE key LIKE 'enhanced_%' OR key LIKE 'avail%'")
+            c.execute("DELETE FROM meta WHERE key LIKE 'enhanced_%' OR key LIKE 'avail%' OR key LIKE 'hire_%' "
+                      "OR key LIKE 'bills_%' OR key LIKE 'alert_%'")
             for table in ("telemetry", "flight_events", "flights", "jobs", "hangar", "transactions",
-                          "aircraft_flown", "messages", "employment", "applications", "pilot"):
+                          "aircraft_flown", "messages", "employment", "applications", "vacancies", "certificates",
+                          "training", "pilot"):
                 c.execute(f"DELETE FROM {table}")

@@ -120,9 +120,14 @@ class JobBoardPage(Page):
             return "Employed", p.good
         if self.career.employer_fleet_note(employer):
             return "Aircraft not installed", p.muted
+        hs = self.career.hiring.state(employer.id)
+        if hs["state"] == "cooldown":
+            return f"Apply again after {hs['until']:%d %b}", p.warn
+        if hs["state"] == "closed":
+            return "Not recruiting", p.muted
         if quals.meets(employer, q):
-            return "You qualify", p.accent
-        return "Not yet qualified", p.warn
+            return "Recruiting - you qualify", p.accent
+        return "Recruiting - not yet qualified", p.warn
 
     def refresh(self) -> None:
         pilot = self.db.pilot()
@@ -175,8 +180,10 @@ class JobBoardPage(Page):
         stats = (f"<br><b>Your record:</b> {emp['flights']} flights, {fmt.duration(emp['minutes'])}, "
                  f"{fmt.money(self.settings, emp['earned'])} earned" if emp and emp["status"] == "active" else "")
         self.d_facts.setText(f"<b>Base:</b> {e.base} &nbsp; <b>Work:</b> {kinds}<br><b>Aircraft:</b> {fleet}<br>"
-                             f"<b>Pay:</b> {e.pay_factor:.0%} of standard, company covers fuel and running costs{stats}")
-        checks = quals.check_requirements(e.reqs, q)
+                             f"<b>Hiring:</b> {self.career.hiring.describe(e.id)}<br>"
+                             f"<b>Pay:</b> {e.pay_factor:.0%} of standard. The company covers fuel and aircraft costs; "
+                             f"your licence, training and living costs are yours.{stats}")
+        checks = quals.check_requirements(e.reqs, q, e)
         self.checks.setRowCount(len(checks) or 1)
         if not checks:
             self.checks.setItem(0, 0, QTableWidgetItem("No requirements: they will train you"))
@@ -190,20 +197,25 @@ class JobBoardPage(Page):
                     it.setTextAlignment(Qt.AlignCenter)
                 self.checks.setItem(r, col, it)
         note = self.career.employer_fleet_note(e)
+        hs = self.career.hiring.state(e.id)
         if employed:
-            self.status.setText("You work here. Open the messenger to get flights.")
+            self.status.setText("You work here. Open the messenger and tell your dispatcher how long you have.")
             self.status.setStyleSheet(f"color:{p.good};")
         elif note:
             self.status.setText(note + ".")
             self.status.setStyleSheet(f"color:{p.warn};")
+        elif hs["state"] != "open":
+            self.status.setText(self.career.hiring.describe(e.id) + ". Vacancies open from time to time; check back.")
+            self.status.setStyleSheet(f"color:{p.muted};")
         elif quals.meets(e, q):
-            self.status.setText("You meet every requirement.")
+            self.status.setText("You meet every requirement. Apply before the vacancy closes.")
             self.status.setStyleSheet(f"color:{p.good};")
         else:
-            self.status.setText("You don't meet every requirement yet. You can still apply, but you'll be turned down.")
+            self.status.setText("You don't meet every requirement yet. Applying now would be turned down and lock you "
+                                "out of this company for two weeks.")
             self.status.setStyleSheet(f"color:{p.warn};")
         self.apply.setVisible(not employed)
-        self.apply.setEnabled(not note)
+        self.apply.setEnabled(not note and hs["state"] == "open")
         self.message.setVisible(employed)
         self.resign.setVisible(employed)
 
