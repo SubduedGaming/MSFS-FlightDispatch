@@ -255,8 +255,7 @@ class MainWindow(QMainWindow):
             self.ctx.check_for_updates(manual=True)
 
     def _update_found(self, info) -> None:
-        rec = self.ctx.career.recorder
-        if rec and rec.started and not rec.finished:
+        if self.ctx.career.has_flown():
             self.ctx.toast.emit("info", f"SkyDispatch {info.version} is available (Help > Check for updates).")
         else:
             self._show_update(info)
@@ -328,7 +327,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, e) -> None:
         job = self.ctx.career.recorder
-        if job and job.started and not job.finished:
+        if job and job.started and not job.finished and job.air_s > 0:
             if QMessageBox.question(self, "Flight in progress", "A flight is being recorded. Quit anyway? "
                                     "The flight will be lost.") != QMessageBox.Yes:
                 e.ignore()

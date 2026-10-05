@@ -152,7 +152,7 @@ class Career:
                 raise CareerError("That job is no longer available")
             if self.db.active_job():
                 raise CareerError("Finish or abandon your current job first")
-            if self.recorder and self.recorder.started and not self.recorder.finished:
+            if self.has_flown():
                 raise CareerError("Finish your current flight before accepting a job")
             if job.employer_id:
                 self._check_employer_job(job)
@@ -264,6 +264,19 @@ class Career:
 
     def live(self) -> Live | None:
         return self.recorder.live() if self.recorder else None
+
+    def has_flown(self) -> bool:
+        """True once the aircraft being recorded has actually been airborne. A recording that began when the engines
+        started (MSFS often spawns you with them running) but has not left the ground is not a flight worth protecting:
+        nothing is lost by updating, quitting, loading fuel and payload or accepting another job."""
+        rec = self.recorder
+        return bool(rec and rec.started and not rec.finished and rec.air_s > 0)
+
+    def reset_fuel_baseline(self, fuel_gal: float) -> None:
+        """Fuel was loaded before take-off: measure fuel used from the new quantity."""
+        rec = self.recorder
+        if rec and rec.started and not rec.finished and rec.air_s == 0:
+            rec.fuel_start = rec.fuel_end = fuel_gal
 
     @property
     def active_job(self) -> Job | None:

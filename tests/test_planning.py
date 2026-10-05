@@ -460,8 +460,9 @@ def test_loading_is_refused_once_the_flight_has_started(ctx):
     out = toasts(ctx)
     ctx.provider = SimulatedProvider()
     ctx.career.recorder.started = True
+    ctx.career.recorder.air_s = 120.0                                    # it has actually been airborne
     ctx.sync_loadout()
-    assert any("already started" in m for _, m in out)
+    assert any("already flown" in m for _, m in out)
 
 
 def test_verification_reloads_if_the_sim_undid_the_load(ctx, monkeypatch):
@@ -533,3 +534,26 @@ def test_context_link_for_a_company_flight(ctx):
     url = ctx.simbrief_link()
     assert "airline=BBA" in url and f"fltnum={flight_number('EGLL', 'EGHI')}" in url
     assert ctx.plan_summary()["flight"].startswith("BBA")
+
+
+def test_a_recording_that_began_on_the_ground_does_not_count_as_a_flight(ctx):
+    """MSFS spawns you with the engines running, which starts the recording; nothing has been flown yet."""
+    rec = ctx.career.recorder
+    rec.started = True
+    assert rec.air_s == 0 and not ctx.career.has_flown()
+    rec.air_s = 30.0
+    assert ctx.career.has_flown()
+    rec.finished = True
+    assert not ctx.career.has_flown()                                    # a finished flight is settled
+
+
+def test_loading_still_works_when_the_recording_started_at_spawn(ctx, qtbot):
+    ctx.provider = SimulatedProvider()
+    ctx.provider._state.title = "Cessna 172 Skyhawk (Simulated)"
+    ctx.sim_connected = True
+    ctx.career.recorder.started = True                                  # engines were already running when MSFS loaded
+    ctx.career.recorder.fuel_start = ctx.career.recorder.fuel_end = 3.0
+    with qtbot.waitSignal(ctx.plan_changed, timeout=5000):
+        ctx.sync_loadout()
+    assert ctx.provider._state.fuel_gal > 3.0
+    assert ctx.career.recorder.fuel_start == pytest.approx(ctx.provider._state.fuel_gal)   # fuel used is measured from here

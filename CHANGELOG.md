@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.4.2
+- Fix: the update dialog (and the quit warning, and accepting a job) wrongly said "Flight in progress" right after
+  landing. The recorder begins a new log as soon as the engines are running and the aircraft rolls or the brake is off,
+  for example while taxiing to the stand. A recording now only counts as a flight once the aircraft has actually been
+  airborne.
+- Loading fuel and payload is likewise no longer refused just because that recording has begun on the ground, and the
+  fuel-used baseline restarts from the loaded quantity.
+
 ## 1.4.1
 - **PMDG 777F and 777-200LR** (B77F, B77L) are in the aircraft list, detected from your PMDG packages, flown by Atlas
   Global, and use the right SimBrief codes. The freighter only gets cargo work. PMDG aircraft manage their own fuel and

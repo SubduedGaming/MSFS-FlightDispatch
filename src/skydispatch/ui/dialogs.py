@@ -94,8 +94,7 @@ class UpdateDialog(QDialog):
             self.status.setText(f"Downloading... {done / 1e6:.0f} of {total / 1e6:.0f} MB")
 
     def _install(self) -> None:
-        rec = self.ctx.career.recorder
-        if rec and rec.started and not rec.finished:
+        if self.ctx.career.has_flown():
             QMessageBox.information(self, "Flight in progress",
                                     "Finish or abandon your current flight first; the app closes during the update.")
             return

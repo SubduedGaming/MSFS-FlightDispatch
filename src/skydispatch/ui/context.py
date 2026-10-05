@@ -309,10 +309,9 @@ class AppContext(QObject):
             if not auto:
                 self.toast.emit("warn", "Accept a job first.")
             return
-        rec = self.career.recorder
-        if rec is not None and rec.started and not rec.finished:
+        if self.career.has_flown():
             if not auto:
-                self.toast.emit("warn", "The flight has already started, so the aircraft can't be loaded any more.")
+                self.toast.emit("warn", "The aircraft has already flown this flight, so it can't be loaded any more.")
             return
         prov = self.provider
         try:
@@ -332,6 +331,7 @@ class AppContext(QObject):
             if self.closed:
                 return
             self._synced_job = job_id
+            self.career.reset_fuel_baseline(res.fuel_gal)       # the recording may have begun with engines running
             note = " ".join(res.messages)
             good = res.fuel_ok and res.payload_ok
             self.toast.emit("good" if good else "warn",
@@ -350,8 +350,7 @@ class AppContext(QObject):
         """MSFS can reset the weights while a flight is still settling in. If what we loaded has been undone and the
         flight has not started, load it once or twice more."""
         job = self.career.active_job
-        rec = self.career.recorder
-        if self.closed or job is None or job.id != job_id or (rec is not None and rec.started):
+        if self.closed or job is None or job.id != job_id or self.career.has_flown():
             return
         status = compare(self.loadout_plan(), self.provider.latest() if self.provider else None) \
             if self.loadout_plan() else None
@@ -379,8 +378,7 @@ class AppContext(QObject):
         if not self.settings.plan.auto_sync_loadout or not self.sim_connected:
             return
         job = self.career.active_job
-        rec = self.career.recorder
-        if job is None or self._synced_job == job.id or (rec is not None and rec.started):
+        if job is None or self._synced_job == job.id or self.career.has_flown():
             self._stable_since = None
             return
         if not state.on_ground or state.gs > 3:

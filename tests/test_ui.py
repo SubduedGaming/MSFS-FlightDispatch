@@ -343,3 +343,22 @@ def test_news_reaches_the_ops_desk_and_notifications(ctx, qtbot):
     ctx.career._fire("bills_charged", items=[("Living costs", 900.0)])
     ctx.career._fire("credential_expiring", kind="medical", label="Medical certificate", state="soon", days_left=5, fee=350)
     qtbot.waitUntil(lambda: any("expires in 5 days" in m for _, m in shown), timeout=3000)
+
+
+def test_update_is_not_blocked_by_a_recording_that_has_not_left_the_ground(ctx, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+    from skydispatch.ui.dialogs import UpdateDialog
+    from skydispatch.updater import UpdateInfo
+    shown = []
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: shown.append(a[2])))
+    started = []
+    monkeypatch.setattr("skydispatch.ui.dialogs.run_async", lambda *a, **k: started.append(1))
+    dlg = UpdateDialog(ctx, UpdateInfo(version="9.9.9", notes="", page_url="https://github.com/x/y",
+                                       asset_name="a.exe", asset_url="https://github.com/x/a.exe"))
+    ctx.career._new_recorder(None, None, None, 0)                        # what feed() starts for a free flight
+    ctx.career.recorder.started = True                                  # engines running on the ramp, not flown yet
+    dlg._install()
+    assert not shown and started                                        # went ahead and began downloading
+    ctx.career.recorder.air_s = 60.0                                    # now it really is mid-flight
+    dlg._install()
+    assert shown and "Flight in progress" not in shown[-1] and "current flight" in shown[-1]
