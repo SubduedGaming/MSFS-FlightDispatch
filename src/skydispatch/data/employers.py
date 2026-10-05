@@ -89,7 +89,7 @@ EMPLOYERS: list[Employer] = [
              Requirements(min_total_h=1500, min_recent_h=15, min_skill=72, type_req="category:jet", min_type_h=100), 8),
     Employer("atlas", "Atlas Global Cargo & Long-Haul", "Across oceans",
              "Widebody freight and passenger flying on the world's longest routes.", "KJFK", (),
-             ("b748", "b78x"), ("passenger", "cargo"), 1.7, "ray",
+             ("b748", "b78x", "b77l", "b77f"), ("passenger", "cargo"), 1.7, "ray",
              Requirements(min_total_h=3500, min_recent_h=20, min_skill=78, type_req="category:airliner", min_type_h=400), 9),
 ]
 

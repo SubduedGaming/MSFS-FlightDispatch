@@ -57,12 +57,18 @@ class SimulatedProvider(SimProvider):
                           "total": geo.distance_nm(s.lat, s.lon, dest_lat, dest_lon),
                           "orig": (s.lat, s.lon)}
 
+    def diagnose_loadout(self) -> Future:
+        fut: Future = Future()
+        s = self._state
+        fut.set_result([f"Simulated aircraft: {s.title}", f"fuel {s.fuel_gal:.1f} gal, payload {s.payload_lb} lb"])
+        return fut
+
     def apply_loadout(self, plan, atype) -> Future:
         """Demo mode: 'load' the simulated aircraft (one pilot of 190 lb is always aboard)."""
         from ..planning.loadout import LoadoutResult, PAX_LB, ready_problem
         from ..planning.loadout import LoadoutError
         with self._plan_lock:
-            problem = ready_problem(self._state, atype)
+            problem = ready_problem(self._state, atype, plan)
             if problem:
                 raise LoadoutError(problem)
             self._state.fuel_gal = min(plan.fuel_gal, atype.fuel_cap_gal)

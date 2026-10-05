@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.4.1
+- **PMDG 777F and 777-200LR** (B77F, B77L) are in the aircraft list, detected from your PMDG packages, flown by Atlas
+  Global, and use the right SimBrief codes. The freighter only gets cargo work. PMDG aircraft manage their own fuel and
+  payload in their EFB or CDU, so SkyDispatch does not write to them; it tells you what to enter there.
+- **Loading fuel and payload into the sim is more reliable and honest:** it no longer refuses when the engines are running,
+  waits a few seconds for MSFS to settle, checks that the sim actually accepted the load (retrying once, and reloading if
+  MSFS undoes it), and warns when it only partly worked. When it is waiting it says why. Everything is now logged.
+- **Help > Check sim loadout (diagnostics)** reads the tanks, payload stations and weights from the live sim (it writes
+  nothing) for troubleshooting.
+
 ## 1.4.0
 - **The career now has a point to the money.** Being employed no longer means you pay for nothing:
   - **Training:** a new Training page. Your licence (a year) and medical (90 days) must be current to fly contracts and

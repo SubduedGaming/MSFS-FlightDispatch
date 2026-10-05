@@ -52,6 +52,7 @@ class AppContext(QObject):
     settings_changed = Signal()
     update_available = Signal(object)     # updater.UpdateInfo
     plan_changed = Signal()               # SimBrief plan imported or the sim aircraft was loaded
+    loadout_report = Signal(str)          # the result of "Check sim loadout"
 
     def __init__(self, settings: Settings, db: Database):
         super().__init__()
@@ -77,6 +78,8 @@ class AppContext(QObject):
             self.ofp = None
         self._synced_job: int | None = None
         self._auto_problem = ""
+        self._stable_since: float | None = None      # since when the aircraft has been ready to load
+        self._verify_tries: dict[int, int] = {}
         self.viewing: dict[str, str] = {}      # viewer (desktop page or browser remote) -> conversation it is showing
         self.closed = False
         self._pending: dict[str, int] = {}
@@ -299,12 +302,17 @@ class AppContext(QObject):
         run_async(work, done, lambda e: None if self.closed else self.toast.emit("warn", e), owner=self)
 
     def sync_loadout(self, auto: bool = False) -> None:
-        """Put the plan's fuel and payload into the simulator aircraft."""
+        """Put the plan's fuel and payload into the simulator aircraft, check that it stuck, and say what happened."""
         jc = self._job_context()
         plan = self.loadout_plan()
         if jc is None or plan is None:
             if not auto:
                 self.toast.emit("warn", "Accept a job first.")
+            return
+        rec = self.career.recorder
+        if rec is not None and rec.started and not rec.finished:
+            if not auto:
+                self.toast.emit("warn", "The flight has already started, so the aircraft can't be loaded any more.")
             return
         prov = self.provider
         try:
@@ -312,46 +320,89 @@ class AppContext(QObject):
                 raise LoadoutError("The simulator is not connected.")
             fut = prov.apply_loadout(plan, jc[1])
         except LoadoutError as exc:
+            log.info("Loadout not applied: %s", exc)
             if not auto:
                 self.toast.emit("warn", str(exc))
             return
         job_id = jc[0].id
+        log.info("Loading the sim aircraft for job %d: %.1f gal, %d pax, %.0f lb cargo (%s)", job_id, plan.fuel_gal,
+                 plan.pax, plan.cargo_lb, plan.fuel_source)
 
         def done(res):
             if self.closed:
                 return
             self._synced_job = job_id
             note = " ".join(res.messages)
-            self.toast.emit("good", f"Aircraft loaded: {res.fuel_gal:.0f} gal fuel, {res.payload_lb:,.0f} lb payload. "
-                                    f"{note}".strip())
+            good = res.fuel_ok and res.payload_ok
+            self.toast.emit("good" if good else "warn",
+                            (f"Aircraft loaded: {res.fuel_gal:.0f} gal fuel, {res.payload_lb:,.0f} lb payload. "
+                             if good else "The sim only partly accepted the load. ") + note)
             self.plan_changed.emit()
+            QTimer.singleShot(6000, lambda: self._verify_loadout(job_id))
 
         def failed(err: str):
+            log.warning("Could not load the aircraft: %s", err)
             if not self.closed:
                 self.toast.emit("warn", f"Could not load the aircraft: {err}")
-        run_async(lambda: fut.result(timeout=20), done, failed, owner=self)
+        run_async(lambda: fut.result(timeout=30), done, failed, owner=self)
+
+    def _verify_loadout(self, job_id: int) -> None:
+        """MSFS can reset the weights while a flight is still settling in. If what we loaded has been undone and the
+        flight has not started, load it once or twice more."""
+        job = self.career.active_job
+        rec = self.career.recorder
+        if self.closed or job is None or job.id != job_id or (rec is not None and rec.started):
+            return
+        status = compare(self.loadout_plan(), self.provider.latest() if self.provider else None) \
+            if self.loadout_plan() else None
+        if status is None or status.matches or self._verify_tries.get(job_id, 0) >= 2:
+            return
+        self._verify_tries[job_id] = self._verify_tries.get(job_id, 0) + 1
+        log.info("The sim aircraft no longer matches the plan (fuel %.1f vs %.1f); loading again", status.sim_fuel_gal,
+                 status.plan_fuel_gal)
+        self.sync_loadout(auto=True)
+
+    def diagnose_loadout(self) -> None:
+        """Read (never write) what the loadout relies on and show it, so a problem can be pinned down."""
+        try:
+            if self.provider is None:
+                raise LoadoutError("The simulator is not connected.")
+            fut = self.provider.diagnose_loadout()
+        except LoadoutError as exc:
+            self.loadout_report.emit(str(exc))
+            return
+        run_async(lambda: fut.result(timeout=30), lambda lines: self.loadout_report.emit("\n".join(lines)),
+                  lambda e: self.loadout_report.emit(f"Could not read the sim: {e}"), owner=self)
 
     def _maybe_auto_sync(self, state: SimState) -> None:
-        """Once per job, as soon as the right aircraft is parked with engines off, load fuel and payload."""
+        """Once per job, when the right aircraft is parked and has settled, load fuel and payload. Say why if waiting."""
         if not self.settings.plan.auto_sync_loadout or not self.sim_connected:
             return
         job = self.career.active_job
         rec = self.career.recorder
         if job is None or self._synced_job == job.id or (rec is not None and rec.started):
+            self._stable_since = None
             return
-        if not state.on_ground or state.engine_running:
+        if not state.on_ground or state.gs > 3:
+            self._stable_since = None                       # moving or airborne: nothing to say yet
             return
         jc = self._job_context()
         if jc is None:
             return
-        problem = ready_problem(state, jc[1])
+        plan = self.loadout_plan()
+        problem = ready_problem(state, jc[1], plan)
         if problem:
-            if "not the contract's aircraft" in problem and problem != self._auto_problem:
+            self._stable_since = None
+            if problem != self._auto_problem:
                 self._auto_problem = problem                  # say it once, not on every sample
-                self.toast.emit("info", problem)
+                self.toast.emit("info", "Not loading the aircraft yet: " + problem)
             return
         self._auto_problem = ""
-        self._synced_job = job.id                            # one automatic attempt per job; the button can repeat it
+        if self._stable_since is None:
+            self._stable_since = state.timestamp
+        if state.timestamp - self._stable_since < 3.0:        # let MSFS finish setting the flight up first
+            return
+        self._synced_job = job.id                             # one automatic attempt per job; the button can repeat it
         self.sync_loadout(auto=True)
 
     def plan_summary(self) -> dict:
@@ -379,7 +430,8 @@ class AppContext(QObject):
                           "payload": f"{plan.pax} pax, {fmt.weight(s, plan.cargo_lb)} cargo "
                                      f"({fmt.weight(s, plan.payload_lb)})", "notes": plan.notes}
         if status:
-            out["sim"] = {"fuel": f"{status.sim_fuel_gal:.0f} gal", "payload": fmt.weight(s, status.sim_payload_lb),
+            out["sim"] = {"fuel": f"{status.sim_fuel_gal:.0f} gal",
+                          "payload": "unknown" if status.sim_payload_lb is None else fmt.weight(s, status.sim_payload_lb),
                           "matches": status.matches, "fuel_ok": status.fuel_ok, "payload_ok": status.payload_ok}
         return out
 

@@ -102,6 +102,7 @@ class MainWindow(QMainWindow):
         ctx.ai_status.connect(self._ai_status)
         ctx.career_event.connect(self._career_event)
         ctx.update_available.connect(self._update_found)
+        ctx.loadout_report.connect(self._show_loadout_report)
         self._update_dlg = None
         self._sim_status(ctx.provider.status if ctx.provider else "disconnected", "")
         self._ai_status(False, "") if ctx.dispatcher.online is False else self.ai_dot.set_state("off", "AI: not checked")
@@ -211,6 +212,7 @@ class MainWindow(QMainWindow):
         h = mb.addMenu("&Help")
         h.addAction(self._act("Open log folder", lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(paths.log_dir())))))
         h.addAction(self._act("Uninstall SkyDispatch...", lambda: UninstallDialog(self).exec()))
+        h.addAction(self._act("Check sim loadout (diagnostics)...", self.ctx.diagnose_loadout))
         h.addAction(self._act("Check for updates...", self.check_updates_now))
         h.addAction(self._act(f"About {APP_NAME}", lambda: AboutDialog(self.ctx, self).exec()))
 
@@ -235,6 +237,15 @@ class MainWindow(QMainWindow):
                 "You can also do this later in Settings > Voice.\n\nDownload them now?") == QMessageBox.Yes:
             self.ctx.toast.emit("info", f"Downloading {len(missing)} voice(s) in the background...")
             self.ctx.download_character_voices()
+
+    def _show_loadout_report(self, text: str) -> None:
+        box = QMessageBox(QMessageBox.Information, "Sim loadout diagnostics",
+                          "What SkyDispatch can read from the aircraft in MSFS right now (nothing was changed). "
+                          "The same lines are in the log.", QMessageBox.Ok, self)
+        box.setDetailedText(text)
+        box.setModal(False)
+        box.show()
+        self._loadout_box = box
 
     # --------------------------------------------------------------- updates
     def check_updates_now(self) -> None:

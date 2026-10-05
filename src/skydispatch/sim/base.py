@@ -39,7 +39,7 @@ class SimState:
     touchdown_fpm: float | None = None   # sim-reported touchdown velocity if available
     title: str = ""
     sim_time_scale: float = 1.0          # simulated seconds elapsed per wall second (demo mode)
-    payload_lb: float = 0.0              # everything on the payload stations (crew, passengers, cargo)
+    payload_lb: float | None = None     # everything on the payload stations (crew, passengers, cargo); None = unknown
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -85,6 +85,10 @@ class SimProvider(abc.ABC):
 
     def latest(self) -> SimState | None:
         return self._latest
+
+    def diagnose_loadout(self):
+        from ..planning.loadout import LoadoutError
+        raise LoadoutError("Loadout diagnostics need the live MSFS connection on the PC that runs the sim.")
 
     def apply_loadout(self, plan, atype):
         """Load the sim aircraft with `plan` (planning.loadout.Loadout). Returns a Future of LoadoutResult."""

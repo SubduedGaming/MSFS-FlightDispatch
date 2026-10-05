@@ -141,6 +141,8 @@ class JobGenerator:
                 continue
             if kind == "medevac" and plane.category == AIRLINER:
                 continue
+            if plane.pax == 0 and kind in ("passenger", "charter", "medevac"):
+                continue                               # a freighter has no seats
             if kind == "mail" and plane.cargo_lb < 150:
                 continue
             if kind == "cargo" and plane.cargo_lb < 100:

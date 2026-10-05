@@ -80,11 +80,16 @@ CATALOG: list[AircraftType] = [
                  420000000, 9000, 14000, 500, ("747", "b748"), 6.7),
     AircraftType("b78x", "Boeing 787-10 Dreamliner", "Boeing", AIRLINER, 490, 350, 1450.0, 33400, 330, 40000, 7000,
                  338000000, 8000, 9000, 500, ("787", "b78x", "dreamliner"), 6.7),
+    # PMDG 777 (add-on): the freighter and the long-range -200LR.
+    AircraftType("b77f", "Boeing 777F (PMDG)", "Boeing", AIRLINER, 490, 350, 2300.0, 47890, 0, 100000, 4900,
+                 352000000, 9500, 12000, 500, ("777f", "777-200f", "777 freighter", "777-200er freighter", "77f"), 6.7),
+    AircraftType("b77l", "Boeing 777-200LR (PMDG)", "Boeing", AIRLINER, 490, 350, 2350.0, 47890, 301, 30000, 8700,
+                 300000000, 9800, 12000, 500, ("777-200lr", "777lr", "200lr", "77l"), 6.7),
 ]
 
 VREF = {"c152": 55, "c172": 65, "da40": 70, "sr22": 80, "g36": 75, "dr40": 62, "baron": 85, "da62": 80,
         "c208": 80, "pc12": 85, "tbm9": 85, "king": 105, "cj4": 105, "a320": 135, "b738": 140, "b748": 155,
-        "b78x": 140}
+        "b78x": 140, "b77f": 150, "b77l": 145}
 
 _BY_ID = {a.id: a for a in CATALOG}
 

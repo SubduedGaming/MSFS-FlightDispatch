@@ -31,7 +31,7 @@ MAX_AGE_H = 36                               # an older plan is probably not for
 ICAO_TYPE = {
     "c152": "C152", "c172": "C172", "da40": "DA40", "sr22": "SR22", "g36": "BE36", "dr40": "DR40", "baron": "BE58",
     "da62": "DA62", "c208": "C208", "pc12": "PC12", "tbm9": "TBM9", "king": "B350", "cj4": "C25C", "a320": "A320",
-    "b738": "B738", "b748": "B748", "b78x": "B78X",
+    "b738": "B738", "b748": "B748", "b78x": "B78X", "b77f": "B77F", "b77l": "B77L",
 }
 
 

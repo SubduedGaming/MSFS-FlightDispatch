@@ -132,7 +132,8 @@ class EmployerDispatch:
             pool = regional or cands
             weights = [self.gen._airport_weight(a.size, plane.category) for a, _ in pool]
             dest, dist = rng.choices(pool, weights=weights, k=1)[0]
-            kind = rng.choice(employer.kinds)
+            kinds = [k for k in employer.kinds if plane.pax > 0 or k in ("cargo", "mail")] or ["cargo"]
+            kind = rng.choice(kinds)
             pax, cargo = _pick_load(rng, kind, plane)
             block = estimate_block_minutes(dist, plane.cruise_kts)
             payout = pilot_pay(employer, block, diff)

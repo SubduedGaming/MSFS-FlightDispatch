@@ -53,6 +53,8 @@ class LoadoutResult:
     fuel_gal: float = 0.0                # what the sim reports afterwards
     payload_lb: float = 0.0              # passenger and cargo weight now on the payload stations (pilot excluded)
     messages: list[str] = field(default_factory=list)
+    fuel_ok: bool = True                 # the sim accepted the fuel we asked for
+    payload_ok: bool = True              # ... and the payload
 
 
 def estimate_fuel(job, atype: AircraftType) -> float:
@@ -76,14 +78,26 @@ def plan_loadout(job, atype: AircraftType, aircraft=None, ofp=None) -> Loadout:
     return Loadout(round(fuel, 1), pax, cargo, source, notes)
 
 
-def ready_problem(state, atype: AircraftType | None) -> str | None:
-    """Why the sim aircraft must not be loaded right now, or None when it is safe."""
+# Add-on aircraft with their own weight and fuel systems (PMDG, Fenix, FlyByWire...) keep them in their own EFB/CDU and
+# ignore or overwrite what an outside tool writes into the simulator's variables.
+_OWN_SYSTEMS = ("pmdg",)
+
+
+def ready_problem(state, atype: AircraftType | None, plan: "Loadout | None" = None) -> str | None:
+    """Why the sim aircraft must not be loaded right now, or None when it is safe.
+
+    The aircraft has to be on the ground and stationary (engines may be running: MSFS starts flights that way). The
+    aircraft in the sim must be the contract's type, and not one that manages its own loading."""
     if state is None:
         return "The simulator is not connected."
     if not state.on_ground or state.gs > 3:
         return "The aircraft must be parked on the ground."
-    if state.engine_running:
-        return "Shut the engines down before loading the aircraft."
+    title = (state.title or "").lower()
+    if any(k in title for k in _OWN_SYSTEMS):
+        want = (f" Enter fuel {plan.fuel_gal:.0f} gal ({plan.fuel_gal * (atype.fuel_lb_per_gal if atype else 6.0):,.0f} lb) "
+                f"and payload {plan.payload_lb:,.0f} lb there." if plan else "")
+        return (f"{state.title} manages its own fuel and payload in its EFB or CDU (which can import your SimBrief "
+                f"plan), so SkyDispatch leaves it alone.{want}")
     if atype is not None:
         sim_type = match_title(state.title or "")
         if sim_type is None or sim_type.id != atype.id:
@@ -137,35 +151,92 @@ def _f(v) -> float:
         return 0.0
 
 
+def _read_back(sim: SimVars, stations: list[int]) -> tuple[float, float]:
+    fuel = _f(sim.get("FUEL_TOTAL_QUANTITY"))
+    payload = sum(_f(sim.get(f"PAYLOAD_STATION_WEIGHT:{i}")) for i in stations)
+    return fuel, payload
+
+
 def apply_loadout(sim: SimVars, plan: Loadout, atype: AircraftType,
                   sleep: Callable[[float], None] = time.sleep) -> LoadoutResult:
-    """Write `plan` into the simulator. Raises LoadoutError when nothing could be written."""
+    """Write `plan` into the simulator and check that it stuck. Raises LoadoutError when nothing was accepted."""
     res = LoadoutResult()
-    # ---- fuel: fill every tank to the same fraction of its capacity
+    # ---- what the aircraft has
     caps = {t: _f(sim.get(f"FUEL_TANK_{t}_CAPACITY")) for t in FUEL_TANKS}
     caps = {t: c for t, c in caps.items() if c > 0.01}
-    if caps:
-        total = sum(caps.values())
-        target = max(0.0, min(plan.fuel_gal, total))
-        for t, cap in caps.items():
-            sim.set(f"FUEL_TANK_{t}_QUANTITY", round(cap * target / total, 2))
-        if plan.fuel_gal > total + 0.5:
-            res.messages.append(f"The sim aircraft holds only {total:.0f} gal, so fuel was limited to that.")
-    else:
-        res.messages.append("Could not read the aircraft's fuel tanks, so fuel was not changed.")
-    # ---- payload
+    total_cap = sum(caps.values())
+    target_fuel = max(0.0, min(plan.fuel_gal, total_cap)) if caps else 0.0
     count = int(_f(sim.get("PAYLOAD_STATION_COUNT")))
     weights, notes = station_weights(count, plan.pax, plan.cargo_lb)
     res.messages += notes
-    for i, w in weights.items():
-        sim.set(f"PAYLOAD_STATION_WEIGHT:{i}", w)
+    log.info("Loadout: tanks %s, %d payload stations; target fuel %.1f gal, stations %s", caps, count, target_fuel, weights)
+    if caps and plan.fuel_gal > total_cap + 0.5:
+        res.messages.append(f"The sim aircraft holds only {total_cap:.0f} gal, so fuel was limited to that.")
+    if not caps:
+        res.messages.append("Could not read the aircraft's fuel tanks, so fuel was not changed.")
+
+    def write() -> None:
+        for t, cap in caps.items():
+            ok = sim.set(f"FUEL_TANK_{t}_QUANTITY", round(cap * target_fuel / total_cap, 2))
+            log.debug("set %s quantity -> %s", t, ok)
+        for i, w in weights.items():
+            ok = sim.set(f"PAYLOAD_STATION_WEIGHT:{i}", w)
+            log.debug("set payload station %d = %.1f -> %s", i, w, ok)
+
+    def fuel_matches(v: float) -> bool:
+        return not caps or abs(v - target_fuel) <= max(0.6, 0.02 * target_fuel)
+
+    def payload_matches(v: float) -> bool:
+        return not weights or abs(v - sum(weights.values())) <= 3.0
+
     if not caps and not weights:
-        raise LoadoutError("The simulator did not accept any changes. Is the aircraft fully loaded in the sim?")
-    # ---- read back what the sim actually holds
-    sleep(0.4)
-    res.fuel_gal = _f(sim.get("FUEL_TOTAL_QUANTITY"))
-    res.payload_lb = sum(_f(sim.get(f"PAYLOAD_STATION_WEIGHT:{i}")) for i in weights)
+        raise LoadoutError("This aircraft exposes no fuel tanks or payload stations to SkyDispatch, so it cannot be "
+                           "loaded from here. Use the aircraft's own loading screen.")
+    write()
+    sleep(0.5)
+    fuel, payload = _read_back(sim, list(weights))
+    if not (fuel_matches(fuel) and payload_matches(payload)):
+        log.info("Loadout not applied yet (fuel %.1f, payload %.1f); writing again", fuel, payload)
+        write()                                                   # some aircraft apply the first write late or drop it
+        sleep(1.0)
+        fuel, payload = _read_back(sim, list(weights))
+    res.fuel_gal, res.payload_lb = fuel, payload
+    res.fuel_ok, res.payload_ok = fuel_matches(fuel), payload_matches(payload)
+    if caps and not res.fuel_ok:
+        res.messages.append(f"MSFS did not accept the fuel change: it reports {fuel:.0f} gal after we asked for "
+                            f"{target_fuel:.0f}.")
+    if weights and not res.payload_ok:
+        res.messages.append(f"MSFS did not accept the payload change: the stations hold {payload:,.0f} lb after we asked "
+                            f"for {sum(weights.values()):,.0f}.")
+    log.info("Loadout result: fuel %.1f gal (ok=%s), payload %.1f lb (ok=%s)", fuel, res.fuel_ok, payload, res.payload_ok)
+    if (caps and not res.fuel_ok) and (not weights or not res.payload_ok):
+        raise LoadoutError(" ".join(res.messages) + " The aircraft may control its own loading; check its own "
+                           "weight and balance screen.")
     return res
+
+
+def diagnose(sim: SimVars, title: str = "") -> list[str]:
+    """Everything the loadout depends on, read from the live sim (nothing is written). For troubleshooting."""
+    lines = [f"Aircraft title: {title or '(unknown)'}"]
+    count = int(_f(sim.get("PAYLOAD_STATION_COUNT")))
+    lines.append(f"Payload stations: {count}")
+    for i in range(1, count + 1):
+        lines.append(f"  station {i}: {_f(sim.get(f'PAYLOAD_STATION_WEIGHT:{i}')):.1f} lb")
+    found = 0
+    for t in FUEL_TANKS:
+        cap = _f(sim.get(f"FUEL_TANK_{t}_CAPACITY"))
+        if cap > 0.01:
+            found += 1
+            lines.append(f"  tank {t}: {_f(sim.get(f'FUEL_TANK_{t}_QUANTITY')):.1f} of {cap:.1f} gal")
+    lines.append(f"Fuel tanks found: {found}")
+    lines.append(f"Fuel total: {_f(sim.get('FUEL_TOTAL_QUANTITY')):.1f} gal "
+                 f"({_f(sim.get('FUEL_TOTAL_QUANTITY_WEIGHT')):,.0f} lb)")
+    lines.append(f"Weights: total {_f(sim.get('TOTAL_WEIGHT')):,.0f} lb, empty {_f(sim.get('EMPTY_WEIGHT')):,.0f} lb")
+    if any(k in title.lower() for k in _OWN_SYSTEMS):
+        lines.append("This add-on manages its own loading, so SkyDispatch will not write to it.")
+    for line in lines:
+        log.info("Loadout diagnostics: %s", line)
+    return lines
 
 
 @dataclass
@@ -174,7 +245,7 @@ class LoadoutStatus:
     payload_ok: bool
     sim_fuel_gal: float
     plan_fuel_gal: float
-    sim_payload_lb: float
+    sim_payload_lb: float | None
     plan_payload_lb: float
 
     @property
@@ -183,10 +254,13 @@ class LoadoutStatus:
 
 
 def compare(plan: Loadout, state) -> LoadoutStatus | None:
-    """Does the live sim aircraft carry what the plan says? None when there is no telemetry."""
+    """Does the live sim aircraft carry what the plan says? None when there is no telemetry.
+
+    The sim's payload includes the pilot, so some crew weight on top of the planned load is normal. When the sim does
+    not report its weights the payload is 'unknown' and counted as fine rather than shown as a false mismatch."""
     if state is None:
         return None
     fuel_ok = abs(state.fuel_gal - plan.fuel_gal) <= 0.5 + 0.03 * plan.fuel_gal
-    # the sim's payload includes the pilot, so allow for crew weight on top of the planned load
-    payload_ok = plan.payload_lb - 5 <= state.payload_lb <= plan.payload_lb + 450
+    known = state.payload_lb is not None
+    payload_ok = (not known) or plan.payload_lb - 5 <= state.payload_lb <= plan.payload_lb + 500
     return LoadoutStatus(fuel_ok, payload_ok, state.fuel_gal, plan.fuel_gal, state.payload_lb, plan.payload_lb)

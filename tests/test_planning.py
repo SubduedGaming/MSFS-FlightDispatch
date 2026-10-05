@@ -161,12 +161,13 @@ def test_layout_edge_cases():
 
 # ---------------------------------------------------------------------------- writing to the sim
 class FakeSim:
-    def __init__(self, tanks, stations, accept=True):
+    def __init__(self, tanks, stations, accept=True, accept_after_writes=0):
         self.v = {f"FUEL_TANK_{t}_CAPACITY": c for t, c in tanks.items()}
         self.v["PAYLOAD_STATION_COUNT"] = stations
         for i in range(1, stations + 1):
             self.v[f"PAYLOAD_STATION_WEIGHT:{i}"] = 0.0
         self.accept, self.writes = accept, []
+        self.accept_after = accept_after_writes           # ignore this many writes first (a sim that is still settling)
 
     def get(self, name):
         if name == "FUEL_TOTAL_QUANTITY":
@@ -175,7 +176,7 @@ class FakeSim:
 
     def set(self, name, value):
         self.writes.append((name, value))
-        if self.accept:
+        if self.accept and len(self.writes) > self.accept_after:
             self.v[name] = value
         return self.accept
 
@@ -201,6 +202,42 @@ def test_apply_loadout_with_nothing_writable_raises():
     assert any("fuel tanks" in m for m in res.messages)               # payload still loads without readable tanks
 
 
+def test_a_sim_that_ignores_writes_is_reported_not_called_loaded():
+    sim = FakeSim({"LEFT_MAIN": 20.0, "RIGHT_MAIN": 20.0}, 5, accept=False)
+    with pytest.raises(lo.LoadoutError, match="did not accept"):
+        lo.apply_loadout(sim, lo.Loadout(30.0, 2, 100, "hangar"), C172, sleep=lambda s: None)
+    assert len(sim.writes) > 8                                   # it tried twice
+
+
+def test_a_sim_that_applies_the_load_late_is_retried_once():
+    sim = FakeSim({"LEFT_MAIN": 20.0, "RIGHT_MAIN": 20.0}, 5, accept_after_writes=6)    # first pass dropped
+    res = lo.apply_loadout(sim, lo.Loadout(30.0, 2, 100, "hangar"), C172, sleep=lambda s: None)
+    assert res.fuel_ok and res.payload_ok and res.fuel_gal == 30.0 and not res.messages
+
+
+def test_partial_acceptance_is_flagged_without_failing():
+    class FuelOnly(FakeSim):
+        def set(self, name, value):
+            self.writes.append((name, value))
+            if "PAYLOAD" not in name:
+                self.v[name] = value
+            return True
+    res = lo.apply_loadout(FuelOnly({"LEFT_MAIN": 40.0}, 5), lo.Loadout(30.0, 2, 100, "hangar"), C172, sleep=lambda s: None)
+    assert res.fuel_ok and not res.payload_ok and any("payload change" in m for m in res.messages)
+
+
+def test_diagnostics_read_everything_and_write_nothing():
+    sim = FakeSim({"LEFT_MAIN": 20.0, "RIGHT_MAIN": 20.0}, 3)
+    sim.v.update({"FUEL_TANK_LEFT_MAIN_QUANTITY": 12.0, "FUEL_TOTAL_QUANTITY_WEIGHT": 72.0, "TOTAL_WEIGHT": 1900.0,
+                  "EMPTY_WEIGHT": 1500.0, "PAYLOAD_STATION_WEIGHT:1": 170.0})
+    lines = lo.diagnose(sim, "Cessna 172 Skyhawk")
+    text = "\n".join(lines)
+    assert "Payload stations: 3" in text and "station 1: 170.0 lb" in text and "Fuel tanks found: 2" in text
+    assert "tank LEFT_MAIN: 12.0 of 20.0 gal" in text and "empty 1,500 lb" in text
+    assert sim.writes == []
+    assert "manages its own loading" in "\n".join(lo.diagnose(sim, "PMDG 777F"))
+
+
 # ---------------------------------------------------------------------------- when it is safe
 def state(**kw):
     base = dict(on_ground=True, gs=0.0, engine_running=False, title="Cessna 172 Skyhawk", fuel_gal=20.0, payload_lb=500.0)
@@ -213,9 +250,23 @@ def test_ready_problems():
     assert "not connected" in lo.ready_problem(None, C172)
     assert "parked" in lo.ready_problem(state(on_ground=False), C172)
     assert "parked" in lo.ready_problem(state(gs=20), C172)
-    assert "engines" in lo.ready_problem(state(engine_running=True), C172)
+    assert lo.ready_problem(state(engine_running=True), C172) is None            # MSFS often starts with engines on
     assert "not the contract's aircraft" in lo.ready_problem(state(title="Airbus A320neo"), C172)
     assert "not the contract's aircraft" in lo.ready_problem(state(title="Some Mod"), C172)
+
+
+def test_add_ons_that_manage_their_own_loading_are_left_alone():
+    from skydispatch.data.aircraft import get_type
+    b77f = get_type("b77f")
+    plan = lo.Loadout(20000.0, 0, 90000.0, "estimate")
+    msg = lo.ready_problem(state(title="PMDG 777F"), b77f, plan)
+    assert "EFB" in msg and "SimBrief" in msg and "20,000 gal" not in msg and "20000 gal" in msg and "90,000 lb" in msg
+    assert lo.ready_problem(state(title="PMDG 777F"), b77f) is not None
+
+
+def test_compare_with_unknown_payload_is_not_a_false_mismatch():
+    plan = lo.Loadout(20.0, 2, 100)
+    assert lo.compare(plan, state(fuel_gal=20.0, payload_lb=None)).matches
 
 
 def test_compare_plan_with_sim():
@@ -232,7 +283,7 @@ def test_simulated_provider_loads_the_aircraft():
     sim._state.title = "Cessna 172 Skyhawk (Simulated)"
     res = sim.apply_loadout(lo.Loadout(18.0, 2, 50), C172).result(1)
     assert sim._state.fuel_gal == 18.0 and res.payload_lb == 2 * lo.PAX_LB + 50
-    sim._state.engine_running = True
+    sim._state.on_ground = False
     with pytest.raises(lo.LoadoutError):
         sim.apply_loadout(lo.Loadout(18.0, 2, 50), C172)
 
@@ -242,9 +293,13 @@ def test_simconnect_provider_queues_writes_for_its_own_thread():
     with pytest.raises(lo.LoadoutError, match="not connected"):
         p.apply_loadout(lo.Loadout(10, 1, 0), C172)
     p.status = "connected"
-    p._latest = state(engine_running=True)
-    with pytest.raises(lo.LoadoutError, match="engines"):
+    p._latest = state(on_ground=False)
+    with pytest.raises(lo.LoadoutError, match="parked"):
         p.apply_loadout(lo.Loadout(10, 1, 0), C172)
+    p._latest = state(title="PMDG 777-200LR")
+    from skydispatch.data.aircraft import get_type
+    with pytest.raises(lo.LoadoutError, match="EFB"):
+        p.apply_loadout(lo.Loadout(10, 1, 0), get_type("b77l"))
     p._latest = state()
     fut = p.apply_loadout(lo.Loadout(10.0, 1, 0), C172)
     assert not fut.done()                              # nothing is written from the caller's thread
@@ -254,6 +309,9 @@ def test_simconnect_provider_queues_writes_for_its_own_thread():
     p._drain_commands(None, ConnectionError("lost"))
     with pytest.raises(ConnectionError):
         fut2.result(1)
+    diag = p.diagnose_loadout()
+    p._drain_commands(FakeSim({"LEFT_MAIN": 20.0}, 5))
+    assert any("Payload stations: 5" in line for line in diag.result(1))
 
 
 # ---------------------------------------------------------------------------- app context
@@ -336,21 +394,99 @@ def test_sync_refuses_the_wrong_aircraft(ctx):
     assert any("not the contract's aircraft" in m for _, m in out)
 
 
-def test_auto_sync_runs_once_per_job_when_parked(ctx, qtbot):
+def test_auto_sync_waits_for_the_aircraft_to_settle_then_runs_once(ctx, qtbot):
     ctx.provider = SimulatedProvider()
-    ctx.provider._state.title = "Cessna 172 Skyhawk (Simulated)"
     ctx.sim_connected = True
     calls = []
     ctx.sync_loadout = lambda auto=False: calls.append(auto)
-    ctx._maybe_auto_sync(state(engine_running=True))
-    assert calls == []                                     # engines running: wait
-    ctx._maybe_auto_sync(state(title="Cessna 172 Skyhawk"))
-    ctx._maybe_auto_sync(state(title="Cessna 172 Skyhawk"))
-    assert calls == [True]                                 # once, not on every sample
+    c172 = dict(title="Cessna 172 Skyhawk")
+    ctx._maybe_auto_sync(state(timestamp=100.0, **c172))
+    assert calls == []                                      # MSFS may still be setting the flight up
+    ctx._maybe_auto_sync(state(timestamp=102.0, **c172))
+    assert calls == []
+    ctx._maybe_auto_sync(state(timestamp=103.5, engine_running=True, **c172))     # engines running is fine
+    assert calls == [True]
+    ctx._maybe_auto_sync(state(timestamp=110.0, **c172))
+    assert calls == [True]                                  # once per job
     ctx.settings.plan.auto_sync_loadout = False
     ctx._synced_job = None
-    ctx._maybe_auto_sync(state(title="Cessna 172 Skyhawk"))
+    ctx._maybe_auto_sync(state(timestamp=120.0, **c172))
     assert calls == [True]
+
+
+def test_auto_sync_resets_when_the_aircraft_moves(ctx):
+    ctx.provider = SimulatedProvider()
+    ctx.sim_connected = True
+    calls = []
+    ctx.sync_loadout = lambda auto=False: calls.append(auto)
+    ctx._maybe_auto_sync(state(timestamp=100.0))
+    ctx._maybe_auto_sync(state(timestamp=102.0, gs=15.0, title="Cessna 172 Skyhawk"))   # taxiing: the clock restarts
+    ctx._maybe_auto_sync(state(timestamp=104.0))
+    assert calls == []
+    ctx._maybe_auto_sync(state(timestamp=108.0))
+    assert calls == [True]
+
+
+def test_auto_sync_says_why_it_is_waiting_once(ctx):
+    out = toasts(ctx)
+    ctx.provider = SimulatedProvider()
+    ctx.sim_connected = True
+    for t in (100.0, 101.0, 102.0):
+        ctx._maybe_auto_sync(state(timestamp=t, title="Airbus A320neo"))
+    waiting = [m for lvl, m in out if m.startswith("Not loading the aircraft yet")]
+    assert len(waiting) == 1 and "not the contract's aircraft" in waiting[0]
+    ctx._maybe_auto_sync(state(timestamp=103.0, title="PMDG 777F"))
+    assert any("EFB" in m for _, m in out if m.startswith("Not loading"))
+
+
+def test_a_partly_accepted_load_is_a_warning_not_a_success(ctx, qtbot):
+    out = toasts(ctx)
+    ctx.provider = SimulatedProvider()
+    ctx.provider._state.title = "Cessna 172 Skyhawk (Simulated)"
+    ctx.sim_connected = True
+    partial = lo.LoadoutResult(fuel_gal=10.0, payload_lb=0.0, fuel_ok=True, payload_ok=False,
+                               messages=["MSFS did not accept the payload change."])
+    from concurrent.futures import Future
+    fut = Future()
+    fut.set_result(partial)
+    ctx.provider.apply_loadout = lambda plan, atype: fut
+    with qtbot.waitSignal(ctx.plan_changed, timeout=5000):
+        ctx.sync_loadout()
+    level, msg = out[-1]
+    assert level == "warn" and "only partly accepted" in msg and "payload" in msg
+
+
+def test_loading_is_refused_once_the_flight_has_started(ctx):
+    out = toasts(ctx)
+    ctx.provider = SimulatedProvider()
+    ctx.career.recorder.started = True
+    ctx.sync_loadout()
+    assert any("already started" in m for _, m in out)
+
+
+def test_verification_reloads_if_the_sim_undid_the_load(ctx, monkeypatch):
+    ctx.provider = SimulatedProvider()
+    ctx.provider._state.title = "Cessna 172 Skyhawk (Simulated)"
+    ctx.provider._state.fuel_gal = 3.0                                   # MSFS reset the tanks
+    ctx.provider._latest = ctx.provider._state
+    calls = []
+    monkeypatch.setattr(ctx, "sync_loadout", lambda auto=False: calls.append(auto))
+    job_id = ctx.career.active_job.id
+    ctx._verify_loadout(job_id)
+    ctx._verify_loadout(job_id)
+    ctx._verify_loadout(job_id)
+    assert calls == [True, True]                                          # twice at most, then stop
+
+
+def test_diagnostics_report_reaches_the_ui(ctx, qtbot):
+    ctx.provider = SimulatedProvider()
+    with qtbot.waitSignal(ctx.loadout_report, timeout=5000) as sig:
+        ctx.diagnose_loadout()
+    assert "Simulated aircraft" in sig.args[0]
+    ctx.provider = None
+    with qtbot.waitSignal(ctx.loadout_report, timeout=2000) as sig:
+        ctx.diagnose_loadout()
+    assert "not connected" in sig.args[0]
 
 
 def test_refuel_to_plan_tops_up_the_hangar_aircraft(ctx, qtbot):

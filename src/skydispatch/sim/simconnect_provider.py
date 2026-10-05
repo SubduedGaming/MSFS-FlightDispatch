@@ -61,17 +61,28 @@ class SimConnectProvider(SimProvider):
         self._touch_fpm: float | None = None
         self._commands: "queue.Queue[tuple]" = queue.Queue()     # writes run on this thread, never concurrently
 
+    def _enqueue(self, fn) -> Future:
+        fut: Future = Future()
+        self._commands.put((fn, fut))
+        return fut
+
     def apply_loadout(self, plan, atype) -> Future:
         """Queue a fuel/payload write. Raises LoadoutError right away if the aircraft is not safe to load."""
         from ..planning.loadout import LoadoutError, apply_loadout, ready_problem
         if self.status != "connected":
             raise LoadoutError("Microsoft Flight Simulator is not connected.")
-        problem = ready_problem(self._latest, atype)
+        problem = ready_problem(self._latest, atype, plan)
         if problem:
             raise LoadoutError(problem)
-        fut: Future = Future()
-        self._commands.put((lambda aq: apply_loadout(aq, plan, atype), fut))
-        return fut
+        return self._enqueue(lambda aq: apply_loadout(aq, plan, atype))
+
+    def diagnose_loadout(self) -> Future:
+        """Read (never write) everything the loadout code relies on, for troubleshooting."""
+        from ..planning.loadout import LoadoutError, diagnose
+        if self.status != "connected":
+            raise LoadoutError("Microsoft Flight Simulator is not connected.")
+        title = self._latest.title if self._latest else ""
+        return self._enqueue(lambda aq: diagnose(aq, title))
 
     def _drain_commands(self, aq, error: Exception | None = None) -> None:
         while True:
@@ -84,6 +95,7 @@ class SimConnectProvider(SimProvider):
                     raise error
                 fut.set_result(fn(aq))
             except BaseException as exc:
+                log.warning("SimConnect command failed: %s", exc, exc_info=not isinstance(exc, (ConnectionError,)))
                 fut.set_exception(exc)
 
     def _run(self) -> None:
@@ -176,4 +188,5 @@ class SimConnectProvider(SimProvider):
             parking_brake=bool(s.get("parking_brake", 0.0)), gear_down=s.get("gear", 1.0) > 0.5,
             flaps=s.get("flaps", 0.0) * 100.0, fuel_gal=s.get("fuel_gal", 0.0),
             sim_paused=bool(s.get("paused", 0.0)), title=self._title, touchdown_fpm=touch,
-            payload_lb=max(0.0, s.get("total_w", 0.0) - s.get("empty_w", 0.0) - s.get("fuel_w", 0.0)))
+            payload_lb=(max(0.0, s.get("total_w", 0.0) - s.get("empty_w", 0.0) - s.get("fuel_w", 0.0))
+                        if s.get("empty_w", 0.0) > 0 and s.get("total_w", 0.0) > 0 else None))
