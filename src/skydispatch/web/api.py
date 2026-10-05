@@ -26,12 +26,14 @@ from ..hangar.service import HangarError, airworthiness, inspection_cost, repair
 from ..jobs.pricing import KIND_LABEL
 from ..pilot import quals
 from ..sim.base import SimState
+from ..planning.loadout import LoadoutError
 from ..sim.installed import installed_types
 from ..ui import fmt
 
 log = logging.getLogger(__name__)
 
 GENERAL = "general"
+VIEWER_RX = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 PHASE_LABEL = {"parked": "Waiting for engine start", "taxi_out": "Taxi out", "takeoff": "Takeoff roll",
                "climb": "Climb", "cruise": "Cruise", "descent": "Descent", "landed": "Landed - rollout",
                "taxi_in": "Taxi in", "arrived": "Arrived"}
@@ -139,6 +141,7 @@ class RemoteApi:
         ctx.chat_busy.connect(lambda t, b: self._publish("busy", {"thread": t, "busy": bool(b)}))
         ctx.settings_changed.connect(lambda: self._publish("settings", {}))
         ctx.career_event.connect(self._on_career_event)
+        ctx.plan_changed.connect(lambda: self._publish("plan", {}))
 
     def _on_career_event(self, name: str, payload: dict) -> None:
         data: dict[str, Any] = {"name": name}
@@ -266,6 +269,33 @@ class RemoteApi:
                 raise ApiError(400, err)
             return {"ok": True}
 
+        # ------------------------------------------------------------ flight plan and loadout
+        @r("GET", "/api/plan")
+        def plan(q, body):
+            return self.ctx.plan_summary()
+
+        @r("GET", "/api/plan/link")
+        def plan_link(q, body):
+            try:
+                return {"url": self.ctx.simbrief_link()}           # the browser on the remote opens SimBrief itself
+            except LoadoutError as exc:
+                raise ApiError(400, str(exc))
+
+        @r("POST", "/api/plan/import")
+        def plan_import(q, body):
+            self.ctx.import_simbrief()
+            return {"ok": True}
+
+        @r("POST", "/api/plan/sync")
+        def plan_sync(q, body):
+            self.ctx.sync_loadout()
+            return {"ok": True}
+
+        @r("POST", "/api/plan/refuel")
+        def plan_refuel(q, body):
+            self.ctx.refuel_to_plan()
+            return {"ok": True}
+
         # ------------------------------------------------------------ copilot
         @r("GET", "/api/copilot")
         def copilot(q, body):
@@ -287,6 +317,17 @@ class RemoteApi:
         def callouts(q, body):
             self.settings.ai.copilot_callouts = bool(body.get("on"))
             self.settings.save()
+            return {"ok": True}
+
+        # ------------------------------------------------------------ which conversation this browser is showing
+        @r("POST", "/api/view")
+        def view(q, body):
+            viewer, thread = str(body.get("viewer", "")), body.get("thread")
+            if not VIEWER_RX.match(viewer):
+                raise ApiError(400, "Bad viewer id")
+            if thread is not None and not self._valid_thread(str(thread)):
+                raise ApiError(400, "Unknown conversation")
+            self.ctx.set_viewing("remote:" + viewer, str(thread) if thread else None)
             return {"ok": True}
 
         # ------------------------------------------------------------ voice (the PC's microphone and speakers)
@@ -644,6 +685,7 @@ class RemoteApi:
                     "units_distance": s.ui.units_distance, "units_weight": s.ui.units_weight,
                     "voice": {"speech_out": tts_ok, "speech_in": stt_ok and s.voice.stt_enabled,
                               "note": "" if stt_ok else stt_msg},
+                    "auto_sync_loadout": s.plan.auto_sync_loadout, "simbrief_user": s.plan.simbrief_user,
                     "version": __version__, "update": {"version": u.version, "url": u.page_url} if u else None,
                     "note": "Everything else (simulator, AI server, voice devices, folders) is set on the Windows PC."}
 
@@ -656,6 +698,10 @@ class RemoteApi:
                     self.ctx.voice.shut_up()
             if "copilot_callouts" in body:
                 s.ai.copilot_callouts = bool(body["copilot_callouts"])
+            if "auto_sync_loadout" in body:
+                s.plan.auto_sync_loadout = bool(body["auto_sync_loadout"])
+            if "simbrief_user" in body:
+                s.plan.simbrief_user = str(body["simbrief_user"]).strip()[:64]
             if body.get("units_distance") in ("nm", "km"):
                 s.ui.units_distance = body["units_distance"]
             if body.get("units_weight") in ("lb", "kg"):
@@ -700,6 +746,13 @@ class RemoteApi:
                        for c in quals.check_requirements(e.reqs, qual)],
             "note": note, "meets": meets, "thread": employer_thread(e.id)})
         return out
+
+    def _valid_thread(self, thread: str) -> bool:
+        return thread in (GENERAL, COPILOT_THREAD) or (thread.startswith("employer:") and thread_employer(thread) is not None)
+
+    def clear_viewer(self, viewer: str) -> None:
+        if VIEWER_RX.match(viewer):
+            self.ctx.set_viewing("remote:" + viewer, None)
 
     def _ensure_general(self) -> None:
         if self.db.last_message(GENERAL) is None:

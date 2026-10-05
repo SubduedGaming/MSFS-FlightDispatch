@@ -26,7 +26,7 @@ def test_tts_manager_queues_and_stops(monkeypatch):
     class Fake(tts.TTSEngine):
         name = "fake"
         def available(self): return True
-        def speak(self, text, voice=""): spoken.append(text); started.set()
+        def speak(self, text, voice="", speed=1.0): spoken.append(text); started.set()
 
     s = Settings()
     mgr = tts.TTSManager(s.voice)

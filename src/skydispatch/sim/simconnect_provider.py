@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import logging
 import math
+import queue
 import sys
 import time
+from concurrent.futures import Future
 
 from .base import SimProvider, SimState
 
@@ -29,6 +31,7 @@ _SLOW = {
     "heading": "PLANE_HEADING_DEGREES_MAGNETIC", "pitch": "PLANE_PITCH_DEGREES", "bank": "PLANE_BANK_DEGREES",
     "fuel_gal": "FUEL_TOTAL_QUANTITY", "parking_brake": "BRAKE_PARKING_POSITION", "gear": "GEAR_HANDLE_POSITION",
     "flaps": "FLAPS_HANDLE_PERCENT", "engine": "GENERAL_ENG_COMBUSTION:1", "paused": "SIM_DISABLED",
+    "total_w": "TOTAL_WEIGHT", "empty_w": "EMPTY_WEIGHT", "fuel_w": "FUEL_TOTAL_QUANTITY_WEIGHT",
 }
 FAST_SAMPLE_AGL_FT = 250.0          # below this (and airborne) sample at 10 Hz so touchdown rate is accurate
 FAST_PERIOD_S = 0.1
@@ -56,6 +59,32 @@ class SimConnectProvider(SimProvider):
         self._touch_prev: float | None = None
         self._touch_until = 0.0
         self._touch_fpm: float | None = None
+        self._commands: "queue.Queue[tuple]" = queue.Queue()     # writes run on this thread, never concurrently
+
+    def apply_loadout(self, plan, atype) -> Future:
+        """Queue a fuel/payload write. Raises LoadoutError right away if the aircraft is not safe to load."""
+        from ..planning.loadout import LoadoutError, apply_loadout, ready_problem
+        if self.status != "connected":
+            raise LoadoutError("Microsoft Flight Simulator is not connected.")
+        problem = ready_problem(self._latest, atype)
+        if problem:
+            raise LoadoutError(problem)
+        fut: Future = Future()
+        self._commands.put((lambda aq: apply_loadout(aq, plan, atype), fut))
+        return fut
+
+    def _drain_commands(self, aq, error: Exception | None = None) -> None:
+        while True:
+            try:
+                fn, fut = self._commands.get_nowait()
+            except queue.Empty:
+                return
+            try:
+                if error is not None:
+                    raise error
+                fut.set_result(fn(aq))
+            except BaseException as exc:
+                fut.set_exception(exc)
 
     def _run(self) -> None:
         if sys.platform != "win32":
@@ -83,6 +112,7 @@ class SimConnectProvider(SimProvider):
             failures = 0
             while not self._stop.is_set():
                 started = time.time()
+                self._drain_commands(aq)
                 last = self._latest
                 fast = bool(last and not last.on_ground and last.alt_agl < FAST_SAMPLE_AGL_FT)
                 try:
@@ -101,6 +131,7 @@ class SimConnectProvider(SimProvider):
                 sm.exit()
             except Exception:
                 pass
+            self._drain_commands(None, ConnectionError("Lost connection to MSFS before the aircraft could be loaded."))
             if not self._stop.is_set():
                 self._set_status("connecting", "Lost connection to MSFS; retrying...")
                 self._sleep(3.0)
@@ -144,4 +175,5 @@ class SimConnectProvider(SimProvider):
             on_ground=bool(f["on_ground"]), engine_running=bool(s.get("engine", 0.0)),
             parking_brake=bool(s.get("parking_brake", 0.0)), gear_down=s.get("gear", 1.0) > 0.5,
             flaps=s.get("flaps", 0.0) * 100.0, fuel_gal=s.get("fuel_gal", 0.0),
-            sim_paused=bool(s.get("paused", 0.0)), title=self._title, touchdown_fpm=touch)
+            sim_paused=bool(s.get("paused", 0.0)), title=self._title, touchdown_fpm=touch,
+            payload_lb=max(0.0, s.get("total_w", 0.0) - s.get("empty_w", 0.0) - s.get("fuel_w", 0.0)))

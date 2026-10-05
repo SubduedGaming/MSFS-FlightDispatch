@@ -213,6 +213,28 @@ class MainWindow(QMainWindow):
         h.addAction(self._act("Check for updates...", self.check_updates_now))
         h.addAction(self._act(f"About {APP_NAME}", lambda: AboutDialog(self.ctx, self).exec()))
 
+    # ---------------------------------------------------------------- voices
+    def offer_voices(self) -> None:
+        """Once: offer to download the natural voices (otherwise everyone shares one voice or the OS voice)."""
+        from ..voice import tts
+        s = self.ctx.settings
+        if s.voice.voices_prompted or not s.voice.tts_enabled or not tts.piper_importable():
+            return
+        s.voice.voices_prompted = True
+        s.save()
+        needed, missing = self.ctx.character_voices()
+        if not missing:
+            return
+        mb = sum(tts.voice_size_mb(v) for v in missing)
+        who = ", ".join(w.split(" (")[0] for v, w in needed if v in missing)
+        if QMessageBox.question(
+                self, "Natural voices",
+                f"SkyDispatch can download natural-sounding voices so each person sounds different ({who}).\n\n"
+                f"{len(missing)} voice(s), about {mb} MB, from the public Piper voice library on Hugging Face. "
+                "You can also do this later in Settings > Voice.\n\nDownload them now?") == QMessageBox.Yes:
+            self.ctx.toast.emit("info", f"Downloading {len(missing)} voice(s) in the background...")
+            self.ctx.download_character_voices()
+
     # --------------------------------------------------------------- updates
     def check_updates_now(self) -> None:
         if self.ctx.update_info:

@@ -311,3 +311,26 @@ def test_port_in_use_reports_an_error(qtbot, ctx):
         assert not ctx.web.running and "port" in ctx.web_error.lower()
     finally:
         a.stop()
+
+
+def test_plan_endpoints(ctx, api, monkeypatch):
+    assert get(api, "/api/plan")[1] == {"has_job": False}
+    st, err = get(api, "/api/plan/link")
+    assert st == 400 and "job" in err["error"].lower()
+    ctx.db.add_job(kind="passenger", title="Plan hop", origin="EGLL", dest="EGHI", distance_nm=60.0, pax=2, cargo_lb=100,
+                   client="Acme", briefing="b", payout=900.0, min_category="piston", min_runway_ft=0, min_reputation=0,
+                   deadline_minutes=120, status="offered", created_at="2026-01-01T00:00:00+00:00",
+                   expires_at="2099-01-01T00:00:00+00:00")
+    jid = ctx.db.jobs("offered")[0].id
+    assert post(api, f"/api/market/{jid}/accept", aircraft_id=ctx.db.hangar()[0].id)[0] == 200
+    st, plan = get(api, "/api/plan")
+    assert st == 200 and plan["has_job"] and plan["ofp"] is None and plan["loadout"]["fuel_source"]
+    st, link = get(api, "/api/plan/link")
+    assert st == 200 and link["url"].startswith("https://dispatch.simbrief.com/") and "orig=EGLL" in link["url"]
+    calls = []
+    monkeypatch.setattr(ctx, "import_simbrief", lambda: calls.append("import"))
+    monkeypatch.setattr(ctx, "sync_loadout", lambda auto=False: calls.append("sync"))
+    assert post(api, "/api/plan/import")[0] == 200 and post(api, "/api/plan/sync")[0] == 200
+    assert calls == ["import", "sync"]
+    assert post(api, "/api/settings", simbrief_user=" georgeh ", auto_sync_loadout=False)[0] == 200
+    assert ctx.settings.plan.simbrief_user == "georgeh" and ctx.settings.plan.auto_sync_loadout is False

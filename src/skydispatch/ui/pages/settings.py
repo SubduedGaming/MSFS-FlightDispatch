@@ -189,6 +189,15 @@ class SettingsPage(Page):
         home.setMaxLength(4)
         f.addRow("Home airport (ICAO):", home)
         lay.addWidget(g)
+        gp = QGroupBox("Flight planning")
+        fp = QFormLayout(gp)
+        fp.addRow("SimBrief username or Pilot ID:", self._bind(QLineEdit(), "plan", "simbrief_user"))
+        fp.addRow(self._bind(QCheckBox("Load fuel and payload into the sim automatically when the aircraft is "
+                                       "parked with engines off"), "plan", "auto_sync_loadout"))
+        fp.addRow(muted("Plans are fetched from SimBrief by name; no password is needed. SkyDispatch only changes "
+                        "the aircraft's fuel and payload, only before the flight starts, and only when the sim "
+                        "aircraft is the one your contract uses."))
+        lay.addWidget(gp)
         gu = QGroupBox("Updates")
         fu = QFormLayout(gu)
         fu.addRow(self._bind(QCheckBox("Check for a newer version when SkyDispatch starts"), "ui", "check_updates"))
@@ -519,6 +528,16 @@ class SettingsPage(Page):
         self.dl_bar.setRange(0, 100)
         self.dl_bar.hide()
         f.addRow(self.dl_bar)
+        vrow = QHBoxLayout()
+        self.cv_label = muted("", wrap=False)
+        self.cv_btn = QPushButton("Download character voices")
+        self.cv_btn.setToolTip("Natural voices for the people you talk to, so each one sounds different")
+        self.cv_btn.clicked.connect(self._download_character_voices)
+        vrow.addWidget(self.cv_btn)
+        vrow.addWidget(self.cv_label, 1)
+        f.addRow("Character voices:", vrow)
+        self._refresh_character_voices()
+        self.ctx.settings_changed.connect(self._refresh_character_voices)
         f.addRow("OS voice name (optional):", self._bind(QLineEdit(), "voice", "tts_voice"))
         rate = self._bind(QDoubleSpinBox(), "voice", "tts_rate")
         rate.setRange(0.5, 2.0)
@@ -624,6 +643,27 @@ class SettingsPage(Page):
     def _gpu_failed(self, err: str) -> None:
         self._gpu_refresh()
         self.gpu_label.setText(f"<span style='color:#ff6b6b'>{err}</span>")
+
+    def _refresh_character_voices(self) -> None:
+        if self.ctx.closed or not hasattr(self, "cv_label"):
+            return
+        needed, missing = self.ctx.character_voices()
+        have = len(needed) - len(missing)
+        mb = sum(tts_mod.voice_size_mb(v) for v in missing)
+        self.cv_label.setText(f"{have} of {len(needed)} downloaded" + (f" (about {mb} MB to fetch)" if missing else
+                                                                       ": everyone has their own voice"))
+        self.cv_btn.setVisible(bool(missing) and tts_mod.piper_importable())
+
+    def _download_character_voices(self) -> None:
+        self.cv_btn.setEnabled(False)
+        self.dl_bar.setValue(0)
+        self.dl_bar.show()
+
+        def finished(_fetched):
+            self.cv_btn.setEnabled(True)
+            self.dl_bar.hide()
+            self._refresh_character_voices()
+        self.ctx.download_character_voices(lambda f, v: self.progress.emit(f), finished)
 
     def _download_voice(self) -> None:
         from ...ai.personas import get_persona

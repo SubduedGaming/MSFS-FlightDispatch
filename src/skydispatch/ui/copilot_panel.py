@@ -71,6 +71,14 @@ class CopilotPanel(QWidget):
         self.heard_error.connect(lambda m: ctx.toast.emit("warn", m))
         self.refresh()
 
+    def showEvent(self, e) -> None:
+        super().showEvent(e)
+        self.ctx.set_viewing("desktop:copilot", "copilot")
+
+    def hideEvent(self, e) -> None:
+        super().hideEvent(e)
+        self.ctx.set_viewing("desktop:copilot", None)
+
     def refresh(self) -> None:
         s = self.ctx.settings
         p = get_copilot(s.ai.copilot)

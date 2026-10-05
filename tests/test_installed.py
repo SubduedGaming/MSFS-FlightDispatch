@@ -86,3 +86,57 @@ def test_msfs2024_store_layout(tmp_path):
     make_pkg(tmp_path, "Community2024", "fbw-a32nx", {"flybywire-aircraft-a320-neo": "FlyByWire Airbus A320neo"})
     assert inst.detect_installed(str(tmp_path)) == {"tbm9", "c172", "a320"}
     assert inst.detect_installed(str(tmp_path / "Official2024")) == {"tbm9", "c172", "a320"}
+
+
+def fake_untraversable_link(monkeypatch, tmp_path, link_name="LocalCache"):
+    """A folder whose junction cannot be walked (the path does not exist for us) but whose target can be read."""
+    real = tmp_path / "real" / link_name
+    link = tmp_path / "Packages" / "app" / link_name
+    monkeypatch.setattr(inst.sys, "platform", "win32")
+
+    def readlink(p):
+        if Path(p) == link:
+            return "\\\\?\\" + str(real)               # Windows gives the extended-length form
+        raise OSError("not a link")
+    monkeypatch.setattr(inst.os, "readlink", readlink)
+    return real, link
+
+
+def test_packages_behind_an_untraversable_junction_are_found_through_its_target(tmp_path, monkeypatch):
+    real, link = fake_untraversable_link(monkeypatch, tmp_path)
+    make_pkg(real / "Packages", "Official2024/OneStore", "asobo-aircraft-tbm930", {"Asobo_TBM930": "Daher TBM 930"})
+    make_pkg(real / "Packages", "Community2024", "fbw-a32nx", {"flybywire-aircraft-a320-neo": "FlyByWire A320neo"})
+    assert not (link / "Packages").is_dir()                            # we really cannot walk through it
+    monkeypatch.setattr(inst, "default_roots", lambda: [link / "Packages"])
+    assert inst.detect_installed("") == {"tbm9", "a320"}
+    assert "found" in inst.searched_locations("")
+
+
+def test_usercfg_behind_an_untraversable_junction_is_still_read(tmp_path, monkeypatch):
+    real, link = fake_untraversable_link(monkeypatch, tmp_path)
+    make_pkg(real / "Packages", "Official2024/OneStore", "asobo-aircraft-c172sp-as1000", {"Asobo_C172sp": "x"})
+    real.mkdir(parents=True, exist_ok=True)
+    (real / "UserCfg.opt").write_text(f'InstalledPackagesPath "{link / "Packages"}"\n')
+    monkeypatch.setattr(inst, "userconfig_candidates", lambda: [link / "UserCfg.opt"])
+    assert inst.detect_installed("") == {"c172"}
+
+
+def test_junction_helpers_do_nothing_off_windows(tmp_path, monkeypatch):
+    monkeypatch.setattr(inst.sys, "platform", "linux")
+    assert inst._junction_targets(tmp_path / "a" / "b") == []
+
+
+def test_ai_traffic_packages_do_not_count_as_installed_aircraft(tmp_path):
+    make_pkg(tmp_path, "Community", "fsltl-traffic-base", {f"FSLTL_B738_{i}": "Boeing 737-800 AAL" for i in range(3)})
+    make_pkg(tmp_path, "Community", "vpilot-ai-models", {"X": "Airbus A320 neo"})
+    make_pkg(tmp_path, "Community", "some-real-addon", {"Asobo_DA40NG": "Diamond DA40 NG"})
+    assert inst.scan_packages(tmp_path) == {"da40"}
+
+
+def test_searched_locations_explains_each_failure(tmp_path, monkeypatch):
+    (tmp_path / "empty").mkdir()
+    text = inst.searched_locations(str(tmp_path / "missing"))
+    assert "missing" in text and ("cannot find" in text.lower() or "not found" in text.lower() or "no such" in text.lower())
+    monkeypatch.setattr(inst, "default_roots", lambda: [tmp_path / "empty"])
+    monkeypatch.setattr(inst.sys, "platform", "win32")
+    assert "no Community or Official inside" in inst.searched_locations("")

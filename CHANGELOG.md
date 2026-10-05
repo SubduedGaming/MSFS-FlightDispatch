@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.3.0
+- **Installed aircraft detection fixed** for the Microsoft Store/Xbox install of MSFS 2024: packages behind the
+  LocalCache junction are now found through the junction's real target, and AI-traffic packages (FSLTL and similar)
+  no longer make every airliner look installed. When detection fails, the message says why.
+- **SimBrief:** a Flight plan and loadout card (desktop and browser remote). Plan on SimBrief opens the dispatch page
+  prefilled for your contract; Import plan fetches your latest plan by username or Pilot ID and shows the route,
+  altitude, ETE and fuel. Settings > General holds your SimBrief username.
+- **Fuel and payload sync:** load the sim aircraft with the fuel and payload SkyDispatch expects, by button or
+  automatically once per job. It only runs with the aircraft parked and engines off, only when the sim aircraft is the
+  contract's type, never changes the pilot's station, and reads the result back. Refuel to plan buys hangar fuel up to
+  the SimBrief block fuel.
+- **Voices:** every company now has its own named dispatcher with a different voice, and HR has its own. Speech
+  speed no longer shifts the pitch. If a character's voice is not downloaded, people still get different voices.
+  A one-time prompt (and Settings > Voice > Download character voices) fetches the voices you need.
+- **Speech follows what you are looking at:** a person only speaks while you are viewing their conversation (in the
+  app or the browser remote) and stops when you switch. The copilot also speaks during a flight.
+- Fix: speech recognition no longer fails on NVIDIA PCs without the CUDA libraries (CPU by default, optional GPU
+  download).
+
 ## 1.2.2
 - Fix: in-app updates on all-users (Program Files) installs rolled back and closed without updating. The updater now
   repeats the same kind of install (asking Windows for permission when needed), the installer waits for SkyDispatch

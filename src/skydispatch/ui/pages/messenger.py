@@ -133,15 +133,29 @@ class MessengerPage(Page):
                 self.threads.setCurrentItem(item)
         self.threads.blockSignals(False)
 
+    def _announce_view(self) -> None:
+        """Tell the speech system which conversation is on screen, so only that person is heard."""
+        self.ctx.set_viewing("desktop:messenger", self.thread if self.isVisible() else None)
+
+    def showEvent(self, e) -> None:
+        super().showEvent(e)
+        self._announce_view()
+
+    def hideEvent(self, e) -> None:
+        super().hideEvent(e)
+        self._announce_view()
+
     def _thread_selected(self, row: int) -> None:
         item = self.threads.item(row)
         if item:
             self.thread = item.data(Qt.UserRole)
             self.ctx.open_thread(self.thread)
+            self._announce_view()
             self._render()
 
     def select_thread(self, thread: str) -> None:
         self.thread = thread
+        self._announce_view()
         self.refresh()
         self.ctx.open_thread(thread)
 

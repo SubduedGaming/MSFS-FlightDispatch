@@ -10,6 +10,7 @@ import dataclasses
 import random
 import threading
 import time
+from concurrent.futures import Future
 
 from ..core import geo
 from .base import SimProvider, SimState
@@ -55,6 +56,20 @@ class SimulatedProvider(SimProvider):
             self._plan = {"lat": dest_lat, "lon": dest_lon, "elev": dest_elev, "phase": "start", "t": 0.0,
                           "total": geo.distance_nm(s.lat, s.lon, dest_lat, dest_lon),
                           "orig": (s.lat, s.lon)}
+
+    def apply_loadout(self, plan, atype) -> Future:
+        """Demo mode: 'load' the simulated aircraft (one pilot of 190 lb is always aboard)."""
+        from ..planning.loadout import LoadoutResult, PAX_LB, ready_problem
+        from ..planning.loadout import LoadoutError
+        with self._plan_lock:
+            problem = ready_problem(self._state, atype)
+            if problem:
+                raise LoadoutError(problem)
+            self._state.fuel_gal = min(plan.fuel_gal, atype.fuel_cap_gal)
+            self._state.payload_lb = PAX_LB + plan.payload_lb
+        fut: Future = Future()
+        fut.set_result(LoadoutResult(fuel_gal=self._state.fuel_gal, payload_lb=plan.payload_lb))
+        return fut
 
     @property
     def flying(self) -> bool:

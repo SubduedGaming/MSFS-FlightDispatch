@@ -30,6 +30,53 @@ _NAME_HINTS = {
 }
 
 
+# AI-traffic model libraries (FSLTL, VATSIM/IVAO model matching...) are not aircraft the player can fly, but contain
+# thousands of airliner models that would make every catalog airliner look installed.
+_TRAFFIC_RX = re.compile(r"traffic|fsltl|ai[-_]?(aircraft|model|traffic)|vpilot|xmatch|world[-_]?of[-_]?ai", re.I)
+
+
+def _is_dir(path: Path) -> bool:
+    try:
+        return path.is_dir()
+    except OSError:
+        return False
+
+
+def _junction_targets(path: Path) -> list[Path]:
+    """Windows: the same location addressed through the real target of the nearest junction above it.
+
+    The Store/Xbox install keeps its packages behind a junction in %LOCALAPPDATA%\\Packages (LocalCache points to
+    E:\\WpSystem\\...). Some processes (for example elevated ones) get "untrusted mount point" when walking
+    through it, but reading where it points needs no walking, and the target folder itself is plain."""
+    if sys.platform != "win32":
+        return []
+    for ancestor in (path, *path.parents):
+        try:
+            target = os.readlink(ancestor)
+        except OSError:
+            continue                                  # not a link
+        target = target[4:] if target.startswith("\\\\?\\") else target
+        return [Path(target) / path.relative_to(ancestor)]
+    return []
+
+
+def _reachable(path: Path, test) -> Path | None:
+    """`path` itself if `test` passes, else the same place via its junction target."""
+    if test(path):
+        return path
+    for alt in _junction_targets(path):
+        if test(alt):
+            return alt
+    return None
+
+
+def _exists(path: Path) -> bool:
+    try:
+        return path.exists()
+    except OSError:
+        return False
+
+
 def userconfig_candidates() -> list[Path]:
     """Locations of MSFS's UserCfg.opt (Store and Steam editions of both sims)."""
     out: list[Path] = []
@@ -85,7 +132,7 @@ def scan_packages(root: Path) -> set[str]:
         except OSError:
             continue
         for pkg in packages:
-            if pkg in seen:
+            if pkg in seen or _TRAFFIC_RX.search(pkg.name):
                 continue
             seen.add(pkg)
             airplanes = pkg / "SimObjects" / "Airplanes"
@@ -155,13 +202,12 @@ def normalise_root(path: Path) -> list[Path]:
     out += [path, path / "Packages"]
     seen: list[Path] = []
     for p in out:
-        if p.is_dir() and p not in seen:
+        if _is_dir(p) and p not in seen:
             seen.append(p)
     return seen
 
 
-def candidate_roots(custom_path: str = "") -> list[Path]:
-    """Every folder we would scan, in priority order, without duplicates."""
+def _raw_candidates(custom_path: str = "") -> list[Path]:
     raw: list[Path] = []
     if custom_path:
         raw.append(Path(custom_path.strip().strip('"')))
@@ -169,15 +215,22 @@ def candidate_roots(custom_path: str = "") -> list[Path]:
         raw.append(Path(os.environ["MSFS_PACKAGES_PATH"]))
     if sys.platform == "win32":
         for cfg in userconfig_candidates():
-            r = packages_path_from_usercfg(cfg) if cfg.exists() else None
+            readable = _reachable(cfg, _exists)
+            r = packages_path_from_usercfg(readable) if readable else None
             if r:
                 raw.append(r)
         raw += default_roots()
+    return raw
+
+
+def candidate_roots(custom_path: str = "") -> list[Path]:
+    """Every folder we would scan, in priority order, without duplicates."""
     roots: list[Path] = []
-    for r in raw:
-        for n in normalise_root(r):
-            if n not in roots:
-                roots.append(n)
+    for r in _raw_candidates(custom_path):
+        for variant in (r, *(_junction_targets(r) if not _is_dir(r) else [])):
+            for n in normalise_root(variant):
+                if n not in roots:
+                    roots.append(n)
     return roots
 
 
@@ -192,7 +245,7 @@ def detect_installed(custom_path: str = "") -> set[str] | None:
     """Scan this computer for MSFS aircraft. None = no MSFS install found (nothing to restrict by)."""
     roots = [r for r in candidate_roots(custom_path) if _has_packages(r) or r == Path(custom_path or "?")]
     if not roots:
-        log.info("No MSFS packages folder found. Looked in: %s", [str(r) for r in candidate_roots(custom_path)])
+        log.info("No MSFS packages folder found. Looked in: %s", searched_locations(custom_path))
         return None
     found: set[str] = set()
     for r in roots:
@@ -203,9 +256,24 @@ def detect_installed(custom_path: str = "") -> set[str] | None:
 
 
 def searched_locations(custom_path: str = "") -> str:
-    """Human-readable list of where detection looks, for messages when nothing is found."""
-    places = [str(r) for r in candidate_roots(custom_path)] or ["(no MSFS folders found on this computer)"]
-    return "; ".join(places[:6])
+    """Human-readable list of where detection looked and what stopped it, for messages when nothing is found."""
+    notes: list[str] = []
+    seen: set[Path] = set()
+    for r in _raw_candidates(custom_path):
+        if r in seen:
+            continue
+        seen.add(r)
+        via = next((t for t in _junction_targets(r) if _is_dir(t)), None) if not _is_dir(r) else None
+        if _is_dir(r) or via:
+            where = via or r
+            notes.append(f"{r} (found)" if _has_packages(where) else f"{r} (a folder, but no Community or Official inside)")
+        else:
+            try:
+                r.stat()
+                notes.append(f"{r} (not a folder)")
+            except OSError as exc:
+                notes.append(f"{r} ({exc.strerror or 'not found'})")
+    return "; ".join(notes[:6]) or "(no MSFS folders found on this computer)"
 
 
 # ---------------------------------------------------------------- settings helpers

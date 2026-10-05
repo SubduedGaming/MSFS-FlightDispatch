@@ -1,6 +1,7 @@
 """AppContext: owns the long-lived services and bridges them to Qt signals."""
 from __future__ import annotations
 
+import json
 import logging
 import os
 import secrets
@@ -11,7 +12,7 @@ from PySide6.QtCore import QObject, QThreadPool, QTimer, Signal
 
 from ..ai.dispatcher import EVENT_IMPORTANCE, Dispatcher, employer_thread, thread_employer
 from ..ai.llm import LLMError
-from ..ai.personas import get_persona
+from ..ai.personas import HR_VOICE, get_persona
 from ..career import ApplicationResult, Career, CareerError, Settlement
 from ..copilot.copilot import CoPilot
 from ..copilot.personas import get_copilot
@@ -23,7 +24,12 @@ from ..sim.bridge_server import BridgeHost
 from ..sim.factory import make_provider
 from ..sim.installed import detect_installed, format_ids, parse_ids, searched_locations
 from ..sim.simulated import SimulatedProvider
+from ..planning import simbrief
+from ..planning.loadout import LoadoutError, compare, plan_loadout, ready_problem
+from . import fmt
 from .. import __version__, updater
+from ..voice import tts as tts_mod
+from ..voice.characters import voices_in_use
 from ..voice.service import VoiceService
 from .workers import run_async
 
@@ -41,6 +47,7 @@ class AppContext(QObject):
     listening = Signal(bool)
     settings_changed = Signal()
     update_available = Signal(object)     # updater.UpdateInfo
+    plan_changed = Signal()               # SimBrief plan imported or the sim aircraft was loaded
 
     def __init__(self, settings: Settings, db: Database):
         super().__init__()
@@ -58,6 +65,15 @@ class AppContext(QObject):
         self.web = None                       # web.server.WebRemote, created on first start_web()
         self.web_error = ""
         self.update_info: updater.UpdateInfo | None = None
+        self.ofp: simbrief.Ofp | None = None
+        try:
+            raw = db.get_meta("simbrief_ofp", "")
+            self.ofp = simbrief.Ofp.from_json(json.loads(raw)) if raw else None
+        except (ValueError, TypeError):
+            self.ofp = None
+        self._synced_job: int | None = None
+        self._auto_problem = ""
+        self.viewing: dict[str, str] = {}      # viewer (desktop page or browser remote) -> conversation it is showing
         self.closed = False
         self._pending: dict[str, int] = {}
         # Dispatcher comments, debriefs and follow-up questions must appear in the order things happened.
@@ -157,6 +173,228 @@ class AppContext(QObject):
             self.share_host.stop()
             self.share_host = None
 
+    # ------------------------------------------------------------------ speech
+    def character_voices(self) -> tuple[list[tuple[str, str]], list[str]]:
+        """(voices the people you talk to use, those of them not downloaded yet)."""
+        needed = voices_in_use(self.settings, [e["employer_id"] for e in self.db.employments()])
+        return needed, [v for v, _ in needed if not tts_mod.piper_installed(v)]
+
+    def download_character_voices(self, progress=None, done=None) -> None:
+        """Fetch the natural (Piper) voices for everyone you talk to. Runs in the background."""
+        _needed, missing = self.character_voices()
+        if not missing:
+            if done:
+                done([])
+            return
+
+        def finished(fetched):
+            if self.closed:
+                return
+            self.voice.tts._engine = None                  # pick the neural voices up straight away
+            self.toast.emit("good", f"Downloaded {len(fetched)} voice(s). Everyone now sounds like themselves.")
+            self.settings_changed.emit()
+            if done:
+                done(fetched)
+
+        def failed(err: str):
+            if not self.closed:
+                self.toast.emit("warn", f"Voice download failed: {err}")
+                if done:
+                    done(None)
+        run_async(lambda: tts_mod.download_voices(missing, progress), finished, failed, owner=self)
+
+    def audible(self, thread: str) -> bool:
+        """Speech for `thread` is wanted only while someone is looking at that conversation. The copilot also speaks
+        during a flight, when the pilot is in the sim and not looking at any window."""
+        return thread in self.viewing.values() or (thread == "copilot" and self.copilot.in_flight())
+
+    def _audible_tags(self) -> set[str]:
+        tags = set(self.viewing.values())
+        if self.copilot.in_flight():
+            tags.add("copilot")
+        return tags
+
+    def set_viewing(self, viewer: str, thread: str | None) -> None:
+        """A page (or the browser remote) now shows `thread`, or nothing. Speech for anything else is cancelled."""
+        if thread:
+            self.viewing[viewer] = thread
+        else:
+            self.viewing.pop(viewer, None)
+        self.voice.drop_unless(self._audible_tags())
+
+    def speak(self, text: str, thread: str, voice: str = "", speed: float | None = None) -> None:
+        """Speak `text` as whoever owns `thread`, if speech is on and that conversation is being looked at."""
+        if self.closed or not self.settings.voice.auto_speak_replies or not self.audible(thread):
+            return
+        who = get_copilot(self.settings.ai.copilot) if thread == "copilot" else self.dispatcher.persona_for(thread)
+        self.voice.say(text, voice or who.piper_voice, tag=thread, speed=who.rate if speed is None else speed)
+
+    # ------------------------------------------------- flight plan and loadout
+    def _job_context(self):
+        """(job, aircraft type, hangar aircraft) for the active contract, or None."""
+        from ..data.aircraft import get_type
+        job = self.career.active_job or self.db.active_job()
+        if job is None:
+            return None
+        aircraft = self.db.aircraft(job.aircraft_id) if job.aircraft_id else None
+        atype = get_type(job.provided_type) if job.employer_id else (get_type(aircraft.type_id) if aircraft else None)
+        return (job, atype, aircraft) if atype else None
+
+    def current_ofp(self):
+        """The imported SimBrief plan if it is for the active job, else None."""
+        jc = self._job_context()
+        return self.ofp if jc and self.ofp and self.ofp.matches(jc[0]) else None
+
+    def loadout_plan(self):
+        jc = self._job_context()
+        return plan_loadout(jc[0], jc[1], jc[2], self.current_ofp()) if jc else None
+
+    def simbrief_link(self) -> str:
+        """The SimBrief dispatch page prefilled for the active job."""
+        jc = self._job_context()
+        if jc is None:
+            raise LoadoutError("Accept a job first.")
+        job, atype, aircraft = jc
+        pilot = self.db.pilot()
+        units = "KGS" if self.settings.ui.units_weight == "kg" else "LBS"
+        return simbrief.dispatch_url(job, atype, aircraft.registration if aircraft else "",
+                                     pilot.callsign if pilot else "", f"sd{job.id}", units)
+
+    def import_simbrief(self) -> None:
+        """Fetch the newest SimBrief plan and keep it if it is for the active job."""
+        jc = self._job_context()
+        if jc is None:
+            self.toast.emit("warn", "Accept a job first, then plan it on SimBrief.")
+            return
+        job, user = jc[0], self.settings.plan.simbrief_user
+
+        def work():
+            try:
+                ofp = simbrief.fetch_latest(user, f"sd{job.id}")
+            except simbrief.SimBriefError:
+                ofp = simbrief.fetch_latest(user)              # the plan was made without our prefilled link
+            if not ofp.matches(job):
+                raise simbrief.SimBriefError(f"Your newest SimBrief plan is {ofp.origin} to {ofp.dest}, not this "
+                                             f"flight ({job.origin} to {job.dest}). Generate the plan for this flight first.")
+            return ofp
+
+        def done(ofp):
+            if self.closed:
+                return
+            self.ofp = ofp
+            self.db.set_meta("simbrief_ofp", json.dumps(ofp.to_json()))
+            self._synced_job = None                          # load the aircraft again with the new fuel
+            msg = f"SimBrief plan imported: {ofp.origin} to {ofp.dest}, block fuel {ofp.block_fuel_lb:,.0f} lb."
+            if ofp.age_hours() > simbrief.MAX_AGE_H:
+                msg += " It is more than a day old."
+            self.toast.emit("good", msg)
+            self.plan_changed.emit()
+        run_async(work, done, lambda e: None if self.closed else self.toast.emit("warn", e), owner=self)
+
+    def sync_loadout(self, auto: bool = False) -> None:
+        """Put the plan's fuel and payload into the simulator aircraft."""
+        jc = self._job_context()
+        plan = self.loadout_plan()
+        if jc is None or plan is None:
+            if not auto:
+                self.toast.emit("warn", "Accept a job first.")
+            return
+        prov = self.provider
+        try:
+            if prov is None:
+                raise LoadoutError("The simulator is not connected.")
+            fut = prov.apply_loadout(plan, jc[1])
+        except LoadoutError as exc:
+            if not auto:
+                self.toast.emit("warn", str(exc))
+            return
+        job_id = jc[0].id
+
+        def done(res):
+            if self.closed:
+                return
+            self._synced_job = job_id
+            note = " ".join(res.messages)
+            self.toast.emit("good", f"Aircraft loaded: {res.fuel_gal:.0f} gal fuel, {res.payload_lb:,.0f} lb payload. "
+                                    f"{note}".strip())
+            self.plan_changed.emit()
+
+        def failed(err: str):
+            if not self.closed:
+                self.toast.emit("warn", f"Could not load the aircraft: {err}")
+        run_async(lambda: fut.result(timeout=20), done, failed, owner=self)
+
+    def _maybe_auto_sync(self, state: SimState) -> None:
+        """Once per job, as soon as the right aircraft is parked with engines off, load fuel and payload."""
+        if not self.settings.plan.auto_sync_loadout or not self.sim_connected:
+            return
+        job = self.career.active_job
+        rec = self.career.recorder
+        if job is None or self._synced_job == job.id or (rec is not None and rec.started):
+            return
+        if not state.on_ground or state.engine_running:
+            return
+        jc = self._job_context()
+        if jc is None:
+            return
+        problem = ready_problem(state, jc[1])
+        if problem:
+            if "not the contract's aircraft" in problem and problem != self._auto_problem:
+                self._auto_problem = problem                  # say it once, not on every sample
+                self.toast.emit("info", problem)
+            return
+        self._auto_problem = ""
+        self._synced_job = job.id                            # one automatic attempt per job; the button can repeat it
+        self.sync_loadout(auto=True)
+
+    def plan_summary(self) -> dict:
+        """Everything the Flight page (desktop and web remote) shows about the plan and the loadout, as text."""
+        jc = self._job_context()
+        if jc is None:
+            return {"has_job": False}
+        job, atype, aircraft = jc
+        s, ofp, plan = self.settings, self.current_ofp(), self.loadout_plan()
+        status = compare(plan, self.provider.latest() if self.provider else None)
+        out: dict = {"has_job": True, "user_set": bool(s.plan.simbrief_user.strip()), "auto": s.plan.auto_sync_loadout,
+                     "ofp": None, "sim": None, "can_refuel": False}
+        if ofp:
+            pdf = ofp.pdf_url if ofp.pdf_url and simbrief.is_trusted_link(ofp.pdf_url) else ""
+            out["ofp"] = {"route": f"{ofp.origin} {ofp.route} {ofp.dest}".strip(),
+                          "altitude": f"{ofp.cruise_alt_ft:,} ft", "distance": fmt.dist(s, ofp.distance_nm),
+                          "ete": fmt.duration(ofp.ete_min), "alternate": ofp.alternate or "-",
+                          "block_fuel": f"{ofp.block_fuel_lb:,.0f} lb ({ofp.block_fuel_gal(atype):.0f} gal)",
+                          "reserve_fuel": f"{ofp.reserve_fuel_lb:,.0f} lb", "pdf": pdf,
+                          "stale": ofp.age_hours() > simbrief.MAX_AGE_H}
+            out["can_refuel"] = aircraft is not None and ofp.block_fuel_gal(atype) > aircraft.fuel_gal + 0.5
+        label = {"hangar": "the aircraft's fuel in your hangar", "simbrief": "the SimBrief block fuel",
+                 "estimate": "an estimate (no SimBrief plan yet)"}[plan.fuel_source]
+        out["loadout"] = {"fuel": f"{plan.fuel_gal:.0f} gal", "fuel_source": label,
+                          "payload": f"{plan.pax} pax, {fmt.weight(s, plan.cargo_lb)} cargo "
+                                     f"({fmt.weight(s, plan.payload_lb)})", "notes": plan.notes}
+        if status:
+            out["sim"] = {"fuel": f"{status.sim_fuel_gal:.0f} gal", "payload": fmt.weight(s, status.sim_payload_lb),
+                          "matches": status.matches, "fuel_ok": status.fuel_ok, "payload_ok": status.payload_ok}
+        return out
+
+    def refuel_to_plan(self) -> None:
+        """Top the hangar aircraft up to the SimBrief block fuel (paying for it), then it can be loaded."""
+        jc = self._job_context()
+        ofp = self.current_ofp()
+        if jc is None or jc[2] is None or ofp is None:
+            self.toast.emit("warn", "Import a SimBrief plan for this flight first.")
+            return
+        job, atype, aircraft = jc
+        need = ofp.block_fuel_gal(atype) - aircraft.fuel_gal
+        if need <= 0.5:
+            self.toast.emit("info", "The aircraft already has the planned fuel.")
+            return
+        cost = self.career.hangar.refuel(aircraft.id, need)
+        self.career._fire("hangar_changed")
+        self.career._fire("pilot_changed")
+        self._synced_job = None
+        self.toast.emit("info", f"Refuelled {need:.0f} gal for {self.settings.ui.currency}{cost:,.0f}.")
+        self.plan_changed.emit()
+
     # ----------------------------------------------------------- web remote
     def start_web(self) -> None:
         """Serve the browser remote (a Mac/tablet/phone UI) when it is switched on in Settings."""
@@ -219,11 +457,11 @@ class AppContext(QObject):
         if self.closed:
             return
         self.career.feed(state)
+        self._maybe_auto_sync(state)
         try:
             for c in self.copilot.callouts(state, time.time()):
                 self.copilot.record_callout(c.text)
-                if self.settings.voice.auto_speak_replies:
-                    self.voice.say(c.text, get_copilot(self.settings.ai.copilot).piper_voice)
+                self.speak(c.text, "copilot")
         except Exception:
             log.exception("copilot callouts failed")
 
@@ -332,8 +570,8 @@ class AppContext(QObject):
                 return
             if text:
                 self.dispatcher.say(text, thread)
-                if self.settings.voice.auto_speak_replies and (important or kind != "react"):
-                    self.voice.say(text, self.dispatcher.persona_for(thread).piper_voice)
+                if important or kind != "react":
+                    self.speak(text, thread)
             if then:
                 then(text)
         run_async(fn, done, lambda e: log.warning("AI task %s failed: %s", kind, e), owner=self, pool=self._ai_pool)
@@ -346,9 +584,16 @@ class AppContext(QObject):
         if result.accepted:
             def work():
                 hr = self.dispatcher.hr_reply(employer, True, result.message)
-                return self.dispatcher.start_thread(employer, hr)
-            run_async(work, lambda _t: None if self.closed else self.thread_changed.emit(employer_thread(employer.id)),
-                      lambda e: log.warning("could not open thread: %s", e), owner=self)
+                self.dispatcher.start_thread(employer, hr)
+                return hr
+
+            def opened(hr):
+                if self.closed:
+                    return
+                thread = employer_thread(employer.id)
+                self.thread_changed.emit(thread)
+                self.speak(hr, thread, voice=HR_VOICE, speed=1.0)     # HR is a different person from the dispatcher
+            run_async(work, opened, lambda e: log.warning("could not open thread: %s", e), owner=self)
         return result
 
     def resign(self, employer_id: str) -> None:
@@ -369,8 +614,8 @@ class AppContext(QObject):
                 return
             self.ai_status.emit(True, "AI dispatcher online")
             last = self.db.last_message(thread)
-            if last and last["role"] == "assistant" and self.settings.voice.auto_speak_replies:
-                self.voice.say(last["content"], self.dispatcher.persona_for(thread).piper_voice)
+            if last and last["role"] == "assistant":
+                self.speak(last["content"], thread)
 
         def failed(err: str):
             self._busy(thread, -1)
@@ -395,8 +640,8 @@ class AppContext(QObject):
                 return
             last = self.db.messages(40, thread)
             intro = next((m for m in reversed(last) if m["role"] == "assistant" and m["kind"] == "text"), None)
-            if intro and self.settings.voice.auto_speak_replies:
-                self.voice.say(intro["content"], self.dispatcher.persona_for(thread).piper_voice)
+            if intro:
+                self.speak(intro["content"], thread)
         run_async(lambda: self.dispatcher.handle_availability(thread, minutes), done,
                   lambda e: (self._busy(thread, -1), log.warning("availability failed: %s", e)), owner=self)
 
@@ -439,8 +684,7 @@ class AppContext(QObject):
             self._busy("copilot", -1)
             if self.closed or not reply:
                 return
-            if self.settings.voice.auto_speak_replies:
-                self.voice.say(reply, get_copilot(self.settings.ai.copilot).piper_voice)
+            self.speak(reply, "copilot")
 
         def failed(err):
             self._busy("copilot", -1)

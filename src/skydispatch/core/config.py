@@ -79,6 +79,7 @@ class VoiceSettings:
     output_device: str = ""
     push_to_talk_key: str = "F9"
     auto_speak_replies: bool = True
+    voices_prompted: bool = False    # asked once whether to download the natural character voices
 
 
 @dataclass
@@ -101,6 +102,13 @@ class RemoteSettings:
 
 
 @dataclass
+class PlanSettings:
+    """Flight planning and loading the sim aircraft."""
+    simbrief_user: str = ""          # SimBrief username, or the numeric Pilot ID
+    auto_sync_loadout: bool = True   # load fuel and payload into the sim when the aircraft is parked, engines off
+
+
+@dataclass
 class UISettings:
     units_distance: str = "nm"       # nm | km
     units_weight: str = "lb"         # lb | kg
@@ -120,6 +128,7 @@ class Settings:
     game: GameSettings = field(default_factory=GameSettings)
     ui: UISettings = field(default_factory=UISettings)
     remote: RemoteSettings = field(default_factory=RemoteSettings)
+    plan: PlanSettings = field(default_factory=PlanSettings)
 
     # ------------------------------------------------------------------
     def to_dict(self) -> dict[str, Any]:

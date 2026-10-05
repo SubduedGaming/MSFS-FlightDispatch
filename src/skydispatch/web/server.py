@@ -164,7 +164,7 @@ class _Handler(BaseHTTPRequestHandler):
         if not self._authed():
             return self._json(401, {"error": "Sign in with your access code."})
         if path == "/api/stream":
-            return self._stream()
+            return self._stream(query.get("v", ""))
         self._api("GET", path, query, None)
 
     def do_POST(self) -> None:
@@ -211,7 +211,7 @@ class _Handler(BaseHTTPRequestHandler):
                               {"Content-Disposition": 'attachment; filename="logbook.csv"', "Cache-Control": "no-store"})
         self._json(status, payload)
 
-    def _stream(self) -> None:
+    def _stream(self, viewer: str = "") -> None:
         q = self.remote.hub.subscribe()
         if q is None:
             return self._json(503, {"error": "Too many open browser windows."})
@@ -239,6 +239,8 @@ class _Handler(BaseHTTPRequestHandler):
             pass                                      # browser went away
         finally:
             self.remote.hub.unsubscribe(q)
+            if viewer:
+                self.remote.viewer_gone(viewer)           # a closed browser tab is no longer listening
 
     def _static(self, path: str) -> None:
         names = {"/": "index.html", "/index.html": "index.html", "/app.js": "app.js", "/style.css": "style.css",
@@ -274,6 +276,9 @@ class WebRemote:
     @property
     def client_count(self) -> int:
         return self.hub.count
+
+    def viewer_gone(self, viewer: str) -> None:
+        self.main.post(lambda: self.api.clear_viewer(viewer))
 
     # ---- login rate limiting: 5 wrong codes inside a minute lock that address out for a minute
     def note_failure(self, ip: str) -> None:

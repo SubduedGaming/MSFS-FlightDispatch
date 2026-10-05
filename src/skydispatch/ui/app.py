@@ -5,7 +5,7 @@ import logging
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QLockFile, QByteArray
+from PySide6.QtCore import QByteArray, QLockFile, QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox
 
@@ -109,6 +109,7 @@ def run(argv: list[str] | None = None) -> int:
         ctx.check_ai()
     ctx.start_web()
     ctx.check_for_updates()
+    QTimer.singleShot(2500, win.offer_voices)
     win.goto("dashboard")
     code = app.exec()
     lock.unlock()

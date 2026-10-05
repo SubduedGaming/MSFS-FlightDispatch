@@ -9,6 +9,7 @@ import subprocess
 import sys
 import threading
 import urllib.request
+import zlib
 from pathlib import Path
 from typing import Callable
 
@@ -39,13 +40,48 @@ def piper_paths(voice: str) -> tuple[Path, Path]:
 DEFAULT_PIPER_VOICE = "en_GB-alan-medium"
 
 
+def piper_importable() -> bool:
+    try:
+        import piper  # noqa: F401
+        import sounddevice  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def installed_voices() -> list[str]:
+    """Piper voices that are fully downloaded, sorted."""
+    try:
+        return sorted(m.name[:-5] for m in models_dir().glob("*.onnx") if (m.parent / (m.name + ".json")).exists())
+    except OSError:
+        return []
+
+
 def resolve_piper_voice(cfg: VoiceSettings, persona_voice: str = "") -> str:
-    """Explicit setting wins; otherwise the persona's voice if downloaded; otherwise the default voice."""
+    """The voice to speak with: an explicit choice wins, then the character's own voice if it is downloaded.
+
+    If it is not, pick a different installed voice per character (stable, from a hash of the character's voice id) so
+    people still sound different from one another while only some voices are downloaded."""
     if cfg.piper_model:
         return cfg.piper_model
     if persona_voice and piper_installed(persona_voice):
         return persona_voice
+    have = installed_voices()
+    if have:
+        return have[zlib.crc32(persona_voice.encode()) % len(have)] if persona_voice else have[0]
     return DEFAULT_PIPER_VOICE
+
+
+def voice_size_mb(voice: str) -> int:
+    return 115 if voice.endswith("-high") else 22 if voice.endswith("-low") else 63
+
+
+def download_voices(voices: list[str], progress: Callable[[float, str], None] | None = None) -> list[str]:
+    """Download every voice that is missing. Returns the ones that were fetched."""
+    todo = [v for v in dict.fromkeys(voices) if not piper_installed(v)]
+    for i, v in enumerate(todo):
+        download_piper_voice(v, (lambda f, i=i, v=v: progress((i + f) / len(todo), v)) if progress else None)
+    return todo
 
 
 def piper_installed(voice: str) -> bool:
@@ -75,7 +111,7 @@ class TTSEngine:
     def available(self) -> bool:
         return False
 
-    def speak(self, text: str, voice: str = "") -> None:       # blocking; `voice` = engine-specific voice id
+    def speak(self, text: str, voice: str = "", speed: float = 1.0) -> None:   # blocking; `voice` = engine voice id
         raise NotImplementedError
 
     def stop(self) -> None:
@@ -117,17 +153,26 @@ class PiperEngine(TTSEngine):
             self._loaded_name = name
         return self._voice
 
-    def speak(self, text: str, voice: str = "") -> None:
+    def speak(self, text: str, voice: str = "", speed: float = 1.0) -> None:
         import numpy as np
         import sounddevice as sd
         self._stop.clear()
         voice = self._load(voice)
         rate = getattr(getattr(voice, "config", None), "sample_rate", 22050)
+        speed = max(0.5, min(2.0, speed * self.cfg.tts_rate))
         chunks: list[bytes] = []
         if hasattr(voice, "synthesize_stream_raw"):             # piper-tts 1.2
             chunks = list(voice.synthesize_stream_raw(text))
         else:                                                   # piper-tts >= 1.3
-            for c in voice.synthesize(text):
+            # Speed changes the model's own timing (length_scale) so pitch stays natural; a little extra variation in
+            # intonation (noise scales) makes the delivery less flat.
+            try:
+                from piper import SynthesisConfig
+                cfg = SynthesisConfig(length_scale=1.0 / speed, noise_scale=0.75, noise_w_scale=0.9)
+                stream = voice.synthesize(text, syn_config=cfg)
+            except (ImportError, TypeError):
+                stream = voice.synthesize(text)
+            for c in stream:
                 rate = getattr(c, "sample_rate", rate)
                 chunks.append(c.audio_int16_bytes)
         if not chunks or self._stop.is_set():
@@ -136,7 +181,7 @@ class PiperEngine(TTSEngine):
         audio *= max(0.0, min(1.0, self.cfg.tts_volume))
         from .stt import resolve_device
         dev = resolve_device(self.cfg.output_device, "output")
-        sd.play(audio, int(rate / max(0.5, self.cfg.tts_rate)), device=dev)
+        sd.play(audio, int(rate), device=dev)
         while sd.get_stream().active and not self._stop.is_set():
             self._stop.wait(0.05)
         sd.stop()
@@ -188,7 +233,7 @@ class SystemEngine(TTSEngine):
     def available(self) -> bool:
         return self._cmd("x") is not None
 
-    def speak(self, text: str, voice: str = "") -> None:
+    def speak(self, text: str, voice: str = "", speed: float = 1.0) -> None:
         cmd = self._cmd(text)
         if not cmd:
             return
@@ -230,7 +275,8 @@ class TTSManager:
         self.voice_hint = voice_hint
         self.persona_voice = persona_voice
         self.on_start, self.on_end = on_start, on_end
-        self._q: queue.Queue[tuple[str, str] | None] = queue.Queue()
+        self._q: queue.Queue[tuple[str, str, str, float] | None] = queue.Queue()
+        self._current_tag = ""
         self._engine: TTSEngine | None = None
         self._lock = threading.Lock()
         self._thread = threading.Thread(target=self._worker, daemon=True, name="tts")
@@ -258,12 +304,28 @@ class TTSManager:
         e = self.engine()
         return e.name if e else "none"
 
-    def speak(self, text: str, voice: str = "") -> None:
+    def speak(self, text: str, voice: str = "", tag: str = "", speed: float = 1.0) -> None:
+        """Queue speech. `tag` names the conversation it belongs to (see drop_unless)."""
         if not self.cfg.tts_enabled or self.cfg.tts_engine == "none":
             return
         clean = speakable(text)
         if clean:
-            self._q.put((clean, voice))
+            self._q.put((clean, voice, tag, speed))
+
+    def drop_unless(self, allowed: set[str]) -> None:
+        """Cancel queued and current speech whose tag is not in `allowed` (untagged speech is always kept)."""
+        kept: list = []
+        while True:
+            try:
+                item = self._q.get_nowait()
+            except queue.Empty:
+                break
+            if item is None or not item[2] or item[2] in allowed:
+                kept.append(item)
+        for item in kept:
+            self._q.put(item)
+        if self._current_tag and self._current_tag not in allowed and self._engine:
+            self._engine.stop()
 
     def stop(self) -> None:
         while not self._q.empty():
@@ -283,7 +345,8 @@ class TTSManager:
             item = self._q.get()
             if item is None:
                 return
-            text, voice = item
+            text, voice, tag, speed = item
+            self._current_tag = tag
             engine = self.engine()
             if engine is None:
                 self.last_error = "No text-to-speech engine available"
@@ -291,7 +354,7 @@ class TTSManager:
             try:
                 if self.on_start:
                     self.on_start()
-                engine.speak(text, voice)
+                engine.speak(text, voice, speed)
                 self.last_error = ""
             except Exception as exc:
                 self.last_error = f"{engine.name}: {exc}"
@@ -299,5 +362,6 @@ class TTSManager:
                 if engine.name == "piper":          # fall back to the OS voice next time
                     self._engine = SystemEngine(self.cfg, self.voice_hint)
             finally:
+                self._current_tag = ""
                 if self.on_end:
                     self.on_end()

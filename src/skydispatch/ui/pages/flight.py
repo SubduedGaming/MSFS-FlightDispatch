@@ -8,6 +8,7 @@ from ...data.aircraft import get_type
 from ...sim.base import SimState
 from .. import fmt
 from ..copilot_panel import CopilotPanel
+from ..plan_card import PlanCard
 from ..widgets import Card, RouteMap, heading, muted
 from .base import Page
 
@@ -44,6 +45,9 @@ class FlightPage(Page):
         for w in (self.job_lbl, self.phase_lbl, self.progress, self.eta_lbl):
             self.summary.lay.addWidget(w)
         root.addWidget(self.summary)
+
+        self.plan_card = PlanCard(ctx)
+        root.addWidget(self.plan_card)
 
         mid = QHBoxLayout()
         mid.setSpacing(14)

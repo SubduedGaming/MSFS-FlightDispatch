@@ -72,6 +72,16 @@ function table(cols, rows, opts = {}) {
       onclick: opts.onclick ? () => opts.onclick(r) : null,
     }, cols.map((c) => { const v = c.get(r); return h('td', { class: (c.num ? 'num ' : '') + (c.tone ? c.tone(r) || '' : '') }, v); }))))));
 }
+// Which conversation this browser is showing. The PC only speaks for conversations somebody is looking at, so a
+// hidden tab or a closed window means silence for that person.
+const viewerId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : (Math.random().toString(36).slice(2) + Date.now().toString(36)).padEnd(12, '0');
+let viewWanted = null;
+const sendView = debounce(() => {
+  fetch('/api/view', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-SkyDispatch': '1' },
+    body: JSON.stringify({ viewer: viewerId, thread: document.hidden ? null : viewWanted }) }).catch(() => {});
+}, 150);
+function setView(thread) { viewWanted = thread; sendView(); }
+document.addEventListener('visibilitychange', () => sendView());
 function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
 
 // ------------------------------------------------------------------ canvas drawing
@@ -268,14 +278,14 @@ function dispatch(type, d) {
 }
 function connect() {
   if (es) es.close();
-  es = new EventSource('/api/stream');
+  es = new EventSource('/api/stream?v=' + encodeURIComponent(viewerId));
   let first = true;
-  es.onopen = () => { setLive(true); if (!first) reload(); first = false; };
+  es.onopen = () => { setLive(true); sendView(); if (!first) reload(); first = false; };
   es.onerror = () => {
     setLive(false);
     if (es.readyState === 2) setTimeout(start, 3000);      // closed for good: re-check sign-in
   };
-  ['state', 'career', 'thread', 'busy', 'toast', 'sim_status', 'ai_status', 'settings'].forEach((t) =>
+  ['state', 'career', 'thread', 'busy', 'toast', 'sim_status', 'ai_status', 'settings', 'plan'].forEach((t) =>
     es.addEventListener(t, (ev) => { try { dispatch(t, JSON.parse(ev.data)); } catch (e) { /* ignore */ } }));
 }
 async function start() {
@@ -373,7 +383,7 @@ loaders.messenger = async (root) => {
       data.is_employer ? btn('Different amount of time', () => act(() => post('/api/thread/' + ui.thread + '/ask_time')), '', { disabled: !data.can_ask_time }) : null,
       btn('Clear conversation', () => { if (confirm('Clear this conversation?')) act(() => post('/api/thread/' + ui.thread + '/clear')); }));
   };
-  const loadThread = async () => { data = await api('/api/thread/' + encodeURIComponent(ui.thread) + (first ? '?open=1' : '')); first = false; draw(); };
+  const loadThread = async () => { data = await api('/api/thread/' + encodeURIComponent(ui.thread) + (first ? '?open=1' : '')); first = false; draw(); setView(ui.thread); };
   const loadThreads = async () => {
     const t = await api('/api/threads');
     if (!t.threads.some((x) => x.id === ui.thread)) ui.thread = 'general';
@@ -390,6 +400,7 @@ loaders.messenger = async (root) => {
       h('div', { class: 'row', style: 'margin-top:8px' }, h('label', { class: 'check' }, speak, 'Speak replies on the PC'), h('span', { class: 'grow' }), extras))));
   await Promise.all([loadThreads(), loadThread()]);
   return {
+    dispose() { setView(null); },
     event(type, d) {
       if (type === 'thread' && d.thread !== 'copilot') { loadThreads(); if (d.thread === ui.thread) loadThread(); return true; }
       if (type === 'busy' && d.thread === ui.thread && data) { data.busy = d.busy; draw(); return true; }
@@ -410,6 +421,26 @@ loaders.flight = async (root) => {
   let ac = f.live ? { lat: f.lat, lon: f.lon, heading: f.heading } : null;
   const paint = () => drawMap(cv, f.route, null, ac);
   const events = h('ul', { class: 'events' }, f.events.map((e) => h('li', {}, e.kind === 'result' ? e.detail : e.kind.replace(/_/g, ' ') + ': ' + e.detail)));
+  const planBox = h('div', { class: 'card' });
+  const drawPlan = async () => {
+    const p = await api('/api/plan');
+    if (!p.has_job) { planBox.style.display = 'none'; return; }
+    planBox.style.display = '';
+    const o = p.ofp, ld = p.loadout, sim = p.sim;
+    fill(planBox, h('h2', {}, 'Flight plan and loadout'),
+      o ? h('p', {}, h('b', {}, 'SimBrief plan: '), o.route, h('br', {}), o.altitude + '   ' + o.distance + '   ' + o.ete + '   alternate ' + o.alternate, h('br', {}),
+        'Block fuel ' + o.block_fuel + '   reserve ' + o.reserve_fuel, ' ', o.pdf ? h('a', { href: o.pdf, target: '_blank', rel: 'noopener' }, 'Open the PDF') : null,
+        o.stale ? h('div', { class: 'warn' }, 'This plan is more than a day old.') : null)
+        : h('p', {}, h('b', {}, 'SimBrief plan: '), 'none for this flight yet.'),
+      h('p', {}, h('b', {}, 'Aircraft should carry: '), ld.fuel + ' fuel (' + ld.fuel_source + ') and ' + ld.payload + '.', ld.notes.map((n) => h('div', { class: 'warn' }, n))),
+      sim ? h('p', {}, h('b', {}, 'In the sim now: '), sim.fuel + ' fuel, ' + sim.payload + ' payload ', h('span', { class: sim.matches ? 'good' : 'warn' }, sim.matches ? '(matches)' : '(differs from SkyDispatch)')) : null,
+      p.user_set ? null : muted('Set your SimBrief username in Settings to import plans.'),
+      h('div', { class: 'row' },
+        btn('Plan on SimBrief', () => act(async () => { const l = await api('/api/plan/link'); window.open(l.url, '_blank', 'noopener'); })),
+        btn('Import plan', () => act(() => post('/api/plan/import')), '', { disabled: !p.user_set }),
+        p.can_refuel ? btn('Refuel to plan', () => act(() => post('/api/plan/refuel'))) : null,
+        btn('Load aircraft in sim', () => act(() => post('/api/plan/sync')), 'primary')));
+  };
   const cbox = h('div', { class: 'msgs' }), cinput = h('input', { placeholder: 'Ask your copilot…' });
   let cop = f.copilot;
   const drawCop = () => bubbles(cbox, { messages: cop.messages, busy: cop.busy, chips: [], can_act: false }, cop.name, {});
@@ -425,18 +456,19 @@ loaders.flight = async (root) => {
   const logPane = h('div', {}, events);
   const body = h('div', {});
   const tab = (k, label) => btn(label, () => { ui.flightTab = k; showTab(); }, ui.flightTab === k ? 'on' : '');
-  const showTab = () => { body.replaceChildren(h('div', { class: 'tabs' }, tab('copilot', 'Copilot'), tab('log', 'Flight log')), ui.flightTab === 'log' ? logPane : copPane); if (ui.flightTab !== 'log') drawCop(); };
+  const showTab = () => { setView(ui.flightTab === 'log' ? null : 'copilot'); body.replaceChildren(h('div', { class: 'tabs' }, tab('copilot', 'Copilot'), tab('log', 'Flight log')), ui.flightTab === 'log' ? logPane : copPane); if (ui.flightTab !== 'log') drawCop(); };
   put(root, h('h1', {}, 'Flight Tracker'),
     h('div', { class: 'card' }, f.job ? jobLine({ title: f.job.title, info: f.job.line }) : h('b', {}, 'Free flight: no contract. Everything you fly is still logged to your logbook.'), phase, bar, eta),
+    planBox,
     h('div', { class: 'cols' }, h('div', {}, cv), h('div', {}, h('div', { class: 'card' }, grid), body)),
     h('div', { class: 'row', style: 'margin-top:12px' },
       f.can_demo ? btn('Start demo flight (simulated mode)', () => act(() => post('/api/flight/demo')), 'primary', { disabled: !f.has_job }) : null,
       h('span', { class: 'grow' }), f.has_job ? btn('Abandon flight', () => { if (confirm('Abandon the current job? Reputation will suffer.')) act(() => post('/api/job/abandon')); }, 'danger') : null));
-  showTab(); requestAnimationFrame(paint);
+  showTab(); requestAnimationFrame(paint); drawPlan();
   const onResize = debounce(paint, 150);
   window.addEventListener('resize', onResize);
   return {
-    dispose() { window.removeEventListener('resize', onResize); },
+    dispose() { window.removeEventListener('resize', onResize); setView(null); },
     event(type, d) {
       if (type === 'state') {
         phase.textContent = d.phase;
@@ -447,6 +479,7 @@ loaders.flight = async (root) => {
         return true;
       }
       if (type === 'career' && d.name === 'flight_event') { events.append(h('li', {}, d.kind.replace(/_/g, ' ') + ': ' + d.detail)); events.scrollTop = events.scrollHeight; return true; }
+      if (type === 'plan') { drawPlan(); return true; }
       if (type === 'thread' && d.thread === 'copilot') { api('/api/copilot').then((c) => { cop = c; if (ui.flightTab !== 'log') drawCop(); }); return true; }
       if (type === 'busy' && d.thread === 'copilot') { cop.busy = d.busy; if (ui.flightTab !== 'log') drawCop(); return true; }
       if (type === 'career' && d.name === 'flight_finished') { events.append(h('li', {}, 'Result: ' + d.outcome + ', score ' + d.score + ' (' + d.grade + ')  payout ' + d.payout)); }
@@ -580,6 +613,9 @@ loaders.settings = async (root) => {
         h('label', { class: 'check', style: 'grid-column:1/-1' }, h('input', { type: 'checkbox', checked: s.copilot_callouts, onchange: (e) => set('copilot_callouts', e.target.checked) }), 'Copilot callouts'),
         'Distance', sel('units_distance', [['nm', 'Nautical miles'], ['km', 'Kilometres']], s.units_distance),
         'Weight', sel('units_weight', [['lb', 'Pounds'], ['kg', 'Kilograms']], s.units_weight))),
+    h('div', { class: 'card' }, h('h2', {}, 'Flight planning'),
+      h('div', { class: 'form' }, 'SimBrief username or Pilot ID', h('input', { value: s.simbrief_user, onchange: (e) => set('simbrief_user', e.target.value) }),
+        h('label', { class: 'check', style: 'grid-column:1/-1' }, h('input', { type: 'checkbox', checked: s.auto_sync_loadout, onchange: (e) => set('auto_sync_loadout', e.target.checked) }), 'Load fuel and payload into the sim automatically (parked, engines off)'))),
     h('div', { class: 'card' }, h('h2', {}, 'Voice on the PC'),
       h('div', {}, 'Speech out: ', h('b', { class: s.voice.speech_out ? 'good' : 'warn' }, s.voice.speech_out ? 'ready' : 'unavailable')),
       h('div', {}, 'Speech in: ', h('b', { class: s.voice.speech_in ? 'good' : 'warn' }, s.voice.speech_in ? 'ready' : 'unavailable')), s.voice.note ? muted(s.voice.note) : null),

@@ -39,6 +39,7 @@ class SimState:
     touchdown_fpm: float | None = None   # sim-reported touchdown velocity if available
     title: str = ""
     sim_time_scale: float = 1.0          # simulated seconds elapsed per wall second (demo mode)
+    payload_lb: float = 0.0              # everything on the payload stations (crew, passengers, cargo)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -84,6 +85,12 @@ class SimProvider(abc.ABC):
 
     def latest(self) -> SimState | None:
         return self._latest
+
+    def apply_loadout(self, plan, atype):
+        """Load the sim aircraft with `plan` (planning.loadout.Loadout). Returns a Future of LoadoutResult."""
+        from ..planning.loadout import LoadoutError
+        raise LoadoutError("This simulator connection cannot be loaded from SkyDispatch. "
+                           "Load the aircraft on the PC that runs MSFS.")
 
     # -- for subclasses ---------------------------------------------------
     @abc.abstractmethod
