@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.2
+- Fix: in-app updates on all-users (Program Files) installs rolled back and closed without updating. The updater now
+  repeats the same kind of install (asking Windows for permission when needed), the installer waits for SkyDispatch
+  to exit before replacing files, and it reopens the installed version if an update does not complete. The installer
+  writes `installer.log` to the logs folder.
+- Releases now ship the Windows installer only; Mac, Linux, tablet and phone users use the browser remote.
+- Note: 1.2.0 and 1.2.1 cannot apply this update themselves; run the 1.2.2 installer once by hand.
+
 ## 1.2.1
 - Fix: "Test microphone" failed with `cublas64_12.dll is not found` on PCs with an NVIDIA GPU. Speech recognition now
   uses the CPU unless the GPU libraries are installed, and falls back to the CPU if the GPU fails.

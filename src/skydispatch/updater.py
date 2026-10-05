@@ -4,6 +4,7 @@ Only the Windows installer is launched automatically. On other systems the app o
 """
 from __future__ import annotations
 
+import ctypes
 import hashlib
 import logging
 import os
@@ -18,6 +19,7 @@ from typing import Callable
 import httpx
 
 from . import __version__
+from .core import paths
 
 log = logging.getLogger(__name__)
 
@@ -25,6 +27,7 @@ REPO = "SubduedGaming/MSFS-FlightDispatch"
 API_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
 RELEASES_URL = f"https://github.com/{REPO}/releases"
 DOWNLOAD_HOST_SUFFIXES = ("github.com", "githubusercontent.com")   # only ever download from GitHub
+INNO_UNINSTALL_KEY = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\{6B1E5C0A-9F3D-4B7E-8A52-3C9D2E41F7A8}_is1"
 TOKEN_ENV = "SKYDISPATCH_GITHUB_TOKEN"     # optional: lets a private repository's releases be found and downloaded
 
 
@@ -157,11 +160,50 @@ def download(info: UpdateInfo, progress: Callable[[int, int], None] | None = Non
     return dest
 
 
+def install_scope(app_dir: Path | None = None) -> tuple[str, Path | None]:
+    """How this copy was installed: ('allusers' | 'currentuser', its folder), read from the installer's registry entry.
+
+    The update must repeat the same kind of install: an all-users copy lives in Program Files, which only an
+    elevated installer can change."""
+    app_dir = app_dir if app_dir is not None else (Path(sys.executable).parent if getattr(sys, "frozen", False) else None)
+    if sys.platform == "win32":
+        import winreg
+        for hive, scope in ((winreg.HKEY_LOCAL_MACHINE, "allusers"), (winreg.HKEY_CURRENT_USER, "currentuser")):
+            try:
+                with winreg.OpenKey(hive, INNO_UNINSTALL_KEY, 0, winreg.KEY_READ | winreg.KEY_WOW64_64KEY) as key:
+                    location = Path(winreg.QueryValueEx(key, "InstallLocation")[0])
+            except OSError:
+                continue
+            if app_dir is None or location.resolve() == app_dir.resolve():
+                return scope, location
+    return "currentuser", app_dir
+
+
+def installer_args(scope: str, app_dir: Path | None, log_file: Path | None = None) -> list[str]:
+    args = ["/SILENT", "/SUPPRESSMSGBOXES", "/CLOSEAPPLICATIONS", "/NORESTART", "/UPDATING=1",
+            "/ALLUSERS" if scope == "allusers" else "/CURRENTUSER"]
+    if app_dir is not None:
+        args.append(f'/DIR="{app_dir}"')
+    if log_file is not None:
+        args.append(f'/LOG="{log_file}"')
+    return args
+
+
 def launch_installer(path: Path) -> None:
-    """Start the Windows installer detached; it closes this app, upgrades in place (career data is kept) and
-    relaunches SkyDispatch. The caller should quit right after."""
+    """Start the Windows installer: it waits for this app to exit, upgrades the same install in place (career data
+    is kept) and reopens SkyDispatch. An all-users install needs Windows' permission prompt (UAC). The caller should
+    quit right after this returns; it raises UpdateError (and nothing changes) if the prompt is declined."""
     if sys.platform != "win32":
         raise UpdateError("Automatic install is only available on Windows.")
-    flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-    subprocess.Popen([str(path), "/SILENT", "/SUPPRESSMSGBOXES", "/CLOSEAPPLICATIONS", "/UPDATING=1"],
-                     creationflags=flags, close_fds=True, cwd=os.path.dirname(str(path)))
+    scope, app_dir = install_scope()
+    args = " ".join(installer_args(scope, app_dir, paths.log_dir() / "installer.log"))
+    workdir = os.path.dirname(str(path))
+    if scope == "allusers":
+        # "runas" shows the UAC prompt; ShellExecute returns > 32 once the elevated installer has started
+        rc = ctypes.windll.shell32.ShellExecuteW(None, "runas", str(path), args, workdir, 1)
+        if rc <= 32:
+            raise UpdateError("The update was not started: Windows did not allow the installer to run "
+                              "(was the permission prompt declined?).")
+    else:
+        flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        subprocess.Popen(f'"{path}" {args}', creationflags=flags, close_fds=True, cwd=workdir)

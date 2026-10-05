@@ -33,11 +33,12 @@ Download the installer for your system from the **Releases** page:
 | OS | File | Uninstall |
 |----|------|-----------|
 | Windows 10/11 | `SkyDispatch-Setup-x.y.z.exe` (guided installer) | Start menu &rarr; *Uninstall SkyDispatch*, or Settings &rarr; Apps (asks whether to keep your career data) |
-| macOS 12+ | `SkyDispatch-x.y.z.pkg` (installer) or `.dmg` (drag to Applications) | Run *Uninstall SkyDispatch.command* |
-| Linux | `skydispatch_x.y.z_amd64.deb` or `SkyDispatch-x.y.z-x86_64.AppImage` | Software centre / `sudo apt remove skydispatch`; delete the AppImage |
 
-Builds are not code-signed yet: Windows SmartScreen and macOS Gatekeeper will warn on first launch
-(*More info &rarr; Run anyway* / right-click &rarr; *Open*).
+Releases ship the Windows installer only. On a Mac, Linux machine, tablet or phone, open the **browser remote** that the
+Windows app serves ([guide](docs/REMOTE.md)); nothing needs installing there. The macOS and Linux packaging scripts
+remain in `packaging/` for anyone who wants to build their own.
+
+The build is not code-signed yet: Windows SmartScreen will warn on first launch (*More info &rarr; Run anyway*).
 
 ### From source
 ```bash

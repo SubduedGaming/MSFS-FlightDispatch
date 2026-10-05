@@ -27,6 +27,18 @@ def resource_path(name: str) -> Path:
     return base / "resources" / name
 
 
+_running_mutex = None
+
+
+def hold_running_mutex() -> None:
+    """Windows: a named mutex that exists exactly as long as this process. The updater's installer waits on it so it
+    never overwrites files of an app that is still shutting down."""
+    global _running_mutex
+    if sys.platform == "win32":
+        import ctypes
+        _running_mutex = ctypes.windll.kernel32.CreateMutexW(None, False, "SkyDispatch.Running")
+
+
 def apply_pending_restore() -> None:
     """A 'Restore from backup' request is applied here, before the database is opened."""
     pending = paths.data_dir() / "pending_restore.db"
@@ -59,6 +71,7 @@ def run(argv: list[str] | None = None) -> int:
         QMessageBox.information(None, APP_NAME, f"{APP_NAME} is already running.")
         return 0
 
+    hold_running_mutex()
     settings = Settings.load()
     theme.set_theme(settings.ui.theme)
     app.setStyleSheet(theme.stylesheet())

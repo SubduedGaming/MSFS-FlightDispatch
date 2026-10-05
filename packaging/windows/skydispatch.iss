@@ -1,7 +1,7 @@
 ; Inno Setup 6 script: GUI installer + uninstaller for SkyDispatch (Windows 10/11, 64-bit).
-; Build: ISCC /DAppVersion=1.2.1 packaging\windows\skydispatch.iss   (or: python packaging/build.py)
+; Build: ISCC /DAppVersion=1.2.2 packaging\windows\skydispatch.iss   (or: python packaging/build.py)
 #ifndef AppVersion
-  #define AppVersion "1.2.1"
+  #define AppVersion "1.2.2"
 #endif
 #define AppName "SkyDispatch"
 #define AppExe "SkyDispatch.exe"
@@ -52,13 +52,53 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopico
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
-; An in-app update runs silently (/UPDATING=1): start the app again afterwards.
-Filename: "{app}\{#AppExe}"; Flags: nowait; Check: IsUpdate
+; An in-app update runs silently (/UPDATING=1): start the app again afterwards, as the normal user (not elevated).
+Filename: "{app}\{#AppExe}"; Flags: nowait runasoriginaluser; Check: IsUpdate
 
 [Code]
+var
+  InstallFinished: Boolean;
+
 function IsUpdate: Boolean;
 begin
   Result := ExpandConstant('{param:UPDATING|0}') = '1';
+end;
+
+// An in-app update starts this installer while SkyDispatch is still shutting down. The app holds the named mutex
+// until its process ends, so wait for it (up to 30 s) instead of failing on locked files and rolling back.
+function InitializeSetup: Boolean;
+var
+  i: Integer;
+begin
+  if IsUpdate then
+    for i := 1 to 60 do
+    begin
+      if not CheckForMutexes('SkyDispatch.Running') then
+        Break;
+      Sleep(500);
+    end;
+  Result := True;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssDone then
+    InstallFinished := True;
+end;
+
+// If an in-app update did not complete (cancelled, rolled back), reopen the version that is still installed so the
+// app never just disappears.
+procedure DeinitializeSetup;
+var
+  ResultCode: Integer;
+  Exe: String;
+begin
+  if IsUpdate and (not InstallFinished) then
+  begin
+    Exe := ExpandConstant('{app}\{#AppExe}');
+    if FileExists(Exe) then
+      ExecAsOriginalUser(Exe, '', ExtractFilePath(Exe), SW_SHOWNORMAL, ewNoWait, ResultCode);
+  end;
 end;
 
 // Career data lives in %LOCALAPPDATA%\SkyDispatch. Keep it by default so reinstalling never loses a career.

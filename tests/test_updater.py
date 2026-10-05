@@ -1,5 +1,7 @@
 import hashlib
+import sys
 from contextlib import contextmanager
+from pathlib import Path
 
 import httpx
 import pytest
@@ -142,11 +144,56 @@ def test_launch_installer_is_windows_only(monkeypatch, tmp_path):
     monkeypatch.setattr(updater.sys, "platform", "linux")
     with pytest.raises(UpdateError):
         updater.launch_installer(tmp_path / "x.exe")
-    calls = []
+
+
+def test_installer_args_repeat_the_existing_install(tmp_path):
+    args = updater.installer_args("allusers", Path(r"C:\Program Files\SkyDispatch"), tmp_path / "i.log")
+    assert args[:5] == ["/SILENT", "/SUPPRESSMSGBOXES", "/CLOSEAPPLICATIONS", "/NORESTART", "/UPDATING=1"]
+    assert "/ALLUSERS" in args and "/CURRENTUSER" not in args
+    assert args[-2] == '/DIR="C:\\Program Files\\SkyDispatch"' and args[-1].startswith('/LOG="')
+    assert "/CURRENTUSER" in updater.installer_args("currentuser", None)
+
+
+def test_all_users_install_asks_windows_for_permission(monkeypatch, tmp_path):
     monkeypatch.setattr(updater.sys, "platform", "win32")
-    monkeypatch.setattr(updater.subprocess, "Popen", lambda args, **kw: calls.append(args))
+    app = Path(r"C:\Program Files\SkyDispatch")
+    monkeypatch.setattr(updater, "install_scope", lambda: ("allusers", app))
+    calls = []
+
+    def shell_execute(hwnd, verb, file, params, cwd, show):
+        calls.append((verb, file, params))
+        return 42                                     # > 32 means started
+    monkeypatch.setattr(updater.ctypes, "windll", type("W", (), {"shell32": type("S", (), {"ShellExecuteW": staticmethod(shell_execute)})}),
+                        raising=False)
+    monkeypatch.setattr(updater.subprocess, "Popen", lambda *a, **k: pytest.fail("must not start unelevated"))
     updater.launch_installer(tmp_path / "x.exe")
-    assert calls[0][1:] == ["/SILENT", "/SUPPRESSMSGBOXES", "/CLOSEAPPLICATIONS", "/UPDATING=1"]
+    verb, file, params = calls[0]
+    assert verb == "runas" and file.endswith("x.exe") and "/ALLUSERS" in params and '/DIR="' in params
+    assert "/UPDATING=1" in params and "/LOG=" in params
+
+
+def test_declined_permission_prompt_is_reported_and_nothing_starts(monkeypatch, tmp_path):
+    monkeypatch.setattr(updater.sys, "platform", "win32")
+    monkeypatch.setattr(updater, "install_scope", lambda: ("allusers", Path("C:/x")))
+    monkeypatch.setattr(updater.ctypes, "windll", type("W", (), {"shell32": type("S", (), {"ShellExecuteW": staticmethod(lambda *a: 5)})}),
+                        raising=False)
+    with pytest.raises(UpdateError, match="permission"):
+        updater.launch_installer(tmp_path / "x.exe")
+
+
+def test_per_user_install_starts_without_elevation(monkeypatch, tmp_path):
+    monkeypatch.setattr(updater.sys, "platform", "win32")
+    monkeypatch.setattr(updater, "install_scope", lambda: ("currentuser", tmp_path / "app"))
+    calls = []
+    monkeypatch.setattr(updater.subprocess, "Popen", lambda cmd, **kw: calls.append(cmd))
+    updater.launch_installer(tmp_path / "x.exe")
+    assert "/CURRENTUSER" in calls[0] and "/ALLUSERS" not in calls[0] and calls[0].startswith('"')
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="reads the Windows registry")
+def test_install_scope_ignores_a_different_install_location():
+    scope, folder = updater.install_scope(Path(r"C:\definitely\not\installed"))
+    assert scope == "currentuser" and folder == Path(r"C:\definitely\not\installed")
 
 
 def test_context_reports_updates(qtbot, tmp_path, monkeypatch):

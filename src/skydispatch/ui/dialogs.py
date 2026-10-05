@@ -111,7 +111,7 @@ class UpdateDialog(QDialog):
         self.status.setText(err)
 
     def _downloaded(self, path) -> None:
-        self.status.setText("Starting the installer. SkyDispatch will close and reopen.")
+        self.status.setText("Starting the installer. Windows may ask for permission; SkyDispatch then closes and reopens.")
         try:
             updater.launch_installer(path)
         except Exception as exc:
