@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.1
+- Fix: "Test microphone" failed with `cublas64_12.dll is not found` on PCs with an NVIDIA GPU. Speech recognition now
+  uses the CPU unless the GPU libraries are installed, and falls back to the CPU if the GPU fails.
+- Optional GPU speech recognition: Settings > Voice > GPU acceleration downloads the NVIDIA libraries once (~1.3 GB,
+  checked against PyPI's SHA-256) into your data folder. The installer stays small.
+
 ## 1.2.0
 - **Browser remote:** the Windows app can serve a web version of itself (Settings > Simulator > Browser remote).
   Open it from a Mac, iPad or phone to use every page as a remote control; voice, the sim and the AI keep running

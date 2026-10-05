@@ -6,6 +6,7 @@ import threading
 from typing import Any
 
 from ..core.config import VoiceSettings
+from . import gpu
 
 log = logging.getLogger(__name__)
 
@@ -119,38 +120,72 @@ class MicRecorder:
         return np.concatenate(frames) if frames else np.zeros(0, dtype="float32")
 
 
+def _is_gpu_library_error(exc: BaseException) -> bool:
+    """CUDA runtime DLLs (cuBLAS/cuDNN) are not bundled, so a GPU chosen by 'auto' can fail at the first use."""
+    text = str(exc).lower()
+    return any(w in text for w in ("cublas", "cudnn", "cuda", "cannot be loaded", "is not found"))
+
+
 class Transcriber:
     def __init__(self, cfg: VoiceSettings):
         self.cfg = cfg
         self._model = None
         self._model_key = ""
+        self._cpu_only = False            # set once the GPU turned out to be unusable
         self._lock = threading.Lock()
 
+    def _device(self) -> str:
+        """cpu or cuda. The GPU is only used when its libraries are present (see voice/gpu.py)."""
+        want = "cpu" if self._cpu_only else self.cfg.stt_device
+        if want == "cpu":
+            return "cpu"
+        if gpu.available() and gpu.has_cuda_device():
+            gpu.activate()
+            return "cuda"
+        if want == "cuda":
+            log.info("GPU speech recognition needs the NVIDIA libraries (Settings > Voice); using the CPU")
+        return "cpu"
+
     def _load(self):
-        key = f"{self.cfg.stt_model}|{self.cfg.stt_device}"
+        device = self._device()
+        key = f"{self.cfg.stt_model}|{device}"
         if self._model is None or self._model_key != key:
             from faster_whisper import WhisperModel
-            device = self.cfg.stt_device
-            compute = "int8"
-            if device == "auto":
-                device = "auto"
-            elif device == "cuda":
-                compute = "float16"
+            compute = "float16" if device == "cuda" else "int8"
             log.info("Loading Whisper model %s on %s", self.cfg.stt_model, device)
             self._model = WhisperModel(self.cfg.stt_model, device=device, compute_type=compute)
             self._model_key = key
         return self._model
 
+    def _fall_back_to_cpu(self, exc: BaseException) -> bool:
+        if self._cpu_only or self.cfg.stt_device == "cpu" or not _is_gpu_library_error(exc):
+            return False
+        log.warning("GPU speech recognition is unavailable (%s); using the CPU instead", exc)
+        self._cpu_only, self._model = True, None
+        return True
+
     def preload(self) -> None:
         with self._lock:
-            self._load()
+            try:
+                self._load()
+            except Exception as exc:
+                if not self._fall_back_to_cpu(exc):
+                    raise
+                self._load()
 
     def transcribe(self, audio) -> str:
         if audio is None or len(audio) < SAMPLE_RATE * 0.3:
             return ""
         with self._lock:
-            model = self._load()
-            segments, _ = model.transcribe(
-                audio, language=self.cfg.stt_language or None, vad_filter=True, beam_size=1,
-                initial_prompt=AVIATION_PROMPT, condition_on_previous_text=False)
-            return " ".join(s.text.strip() for s in segments).strip()
+            try:
+                return self._run(audio)
+            except Exception as exc:
+                if not self._fall_back_to_cpu(exc):
+                    raise
+                return self._run(audio)           # the failed model is discarded; retry once on the CPU
+
+    def _run(self, audio) -> str:
+        segments, _ = self._load().transcribe(
+            audio, language=self.cfg.stt_language or None, vad_filter=True, beam_size=1,
+            initial_prompt=AVIATION_PROMPT, condition_on_previous_text=False)
+        return " ".join(s.text.strip() for s in segments).strip()      # segments are decoded lazily, here

@@ -23,6 +23,7 @@ from ..folder_picker import pick_packages_folder
 from ...core import paths
 from ...core.config import AISettings
 from ...sim.simconnect_provider import simconnect_available
+from ...voice import gpu as gpu_mod
 from ...voice import stt as stt_mod
 from ...voice import tts as tts_mod
 from ...voice.hotkey import hotkey_available
@@ -64,6 +65,7 @@ class SettingsPage(Page):
     run_wizard = Signal()
     theme_changed = Signal(str)
     progress = Signal(float)
+    gpu_progress = Signal(float, str)
 
     def __init__(self, ctx):
         super().__init__(ctx)
@@ -546,6 +548,7 @@ class SettingsPage(Page):
         f2.addRow("Recognition model:", self._bind(_combo([(m, m) for m in WHISPER_MODELS]), "voice", "stt_model"))
         f2.addRow("Processor:", self._bind(_combo([("Automatic", "auto"), ("CPU", "cpu"), ("NVIDIA GPU (CUDA)", "cuda")]),
                                           "voice", "stt_device"))
+        f2.addRow(self._gpu_row())
         f2.addRow("Language:", self._bind(_combo([("English", "en"), ("Auto-detect", ""), ("German", "de"),
                                                   ("French", "fr"), ("Spanish", "es"), ("Italian", "it")]),
                                           "voice", "stt_language"))
@@ -569,6 +572,58 @@ class SettingsPage(Page):
                             f"{'available' if hotkey_available() else 'install pynput (pip install pynput)'}."))
         lay.addStretch(1)
         return w
+
+    # --------------------------------------------------- optional GPU libraries
+    def _gpu_row(self) -> QWidget:
+        box = QWidget()
+        lay = QVBoxLayout(box)
+        lay.setContentsMargins(0, 0, 0, 0)
+        row = QHBoxLayout()
+        self.gpu_btn = QPushButton("")
+        self.gpu_btn.clicked.connect(self._gpu_clicked)
+        self.gpu_label = muted("")
+        row.addWidget(QLabel("GPU acceleration:"))
+        row.addWidget(self.gpu_btn)
+        row.addWidget(self.gpu_label, 1)
+        lay.addLayout(row)
+        self.gpu_bar = QProgressBar()
+        self.gpu_bar.setRange(0, 100)
+        self.gpu_bar.hide()
+        lay.addWidget(self.gpu_bar)
+        self.gpu_progress.connect(self._gpu_progress)
+        self._gpu_refresh()
+        return box
+
+    def _gpu_refresh(self) -> None:
+        state, msg = gpu_mod.status()
+        self.gpu_label.setText(msg)
+        self.gpu_btn.setVisible(state != "unsupported")
+        self.gpu_btn.setText(f"Download NVIDIA libraries (~{gpu_mod.APPROX_SIZE_MB / 1000:.1f} GB)" if state == "missing"
+                             else "Remove GPU libraries")
+        self.gpu_btn.setEnabled(True)
+        self.gpu_bar.hide()
+
+    def _gpu_progress(self, frac: float, text: str) -> None:
+        self.gpu_bar.setValue(int(frac * 100))
+        self.gpu_label.setText(text)
+
+    def _gpu_clicked(self) -> None:
+        if gpu_mod.status()[0] == "ready":
+            removed = gpu_mod.remove()
+            self._gpu_refresh()
+            if not removed:
+                self.gpu_label.setText("Some files are in use. Restart SkyDispatch, then remove them again.")
+            return
+        self.gpu_btn.setEnabled(False)
+        self.gpu_bar.setValue(0)
+        self.gpu_bar.show()
+        run_async(lambda: gpu_mod.install(lambda f, t: self.gpu_progress.emit(f, t)),
+                  lambda _: (self._gpu_refresh(), self.ctx.toast.emit("good", "GPU libraries installed.")),
+                  self._gpu_failed, owner=self)
+
+    def _gpu_failed(self, err: str) -> None:
+        self._gpu_refresh()
+        self.gpu_label.setText(f"<span style='color:#ff6b6b'>{err}</span>")
 
     def _download_voice(self) -> None:
         from ...ai.personas import get_persona
