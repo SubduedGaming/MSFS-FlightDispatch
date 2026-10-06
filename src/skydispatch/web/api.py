@@ -28,7 +28,7 @@ from ..pilot import quals
 from ..sim.base import SimState
 from ..planning.loadout import LoadoutError
 from ..sim.installed import installed_types
-from ..ui import fmt
+from ..core import fmt
 
 log = logging.getLogger(__name__)
 
