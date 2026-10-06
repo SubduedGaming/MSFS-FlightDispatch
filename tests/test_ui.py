@@ -21,8 +21,7 @@ def ctx(qtbot, tmp_path):
     c = AppContext(s, Database(tmp_path / "c.db"))
     c.career.start_career("Test Pilot", "TST1", "EGLL", "c172", 25000)
     yield c
-    c.stop_sim()
-    c.voice.shutdown()
+    c.shutdown()
 
 
 @pytest.fixture
@@ -128,8 +127,7 @@ def test_setup_wizard_creates_career(qtbot, tmp_path):
         assert len(c.db.jobs("offered")) > 0
         assert s.ui.first_run_complete and s.sim.mode == "simulated"
     finally:
-        c.stop_sim()
-        c.voice.shutdown()
+        c.shutdown()
 
 
 @pytest.fixture

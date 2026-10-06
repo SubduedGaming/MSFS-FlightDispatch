@@ -213,7 +213,7 @@ def test_context_reports_updates(qtbot, tmp_path, monkeypatch):
         qtbot.wait(300)
         assert ctx.update_info is None
     finally:
-        ctx.voice.shutdown()
+        ctx.shutdown()
 
 
 def test_private_repository_gives_a_clear_error(monkeypatch):

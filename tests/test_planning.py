@@ -339,8 +339,7 @@ def ctx(qtbot, tmp_path):
     jid = c.db.jobs("offered")[0].id
     c.career.accept_job(jid, c.db.hangar()[0].id)
     yield c
-    c.stop_sim()
-    c.voice.shutdown()
+    c.shutdown()
 
 
 def toasts(ctx):
@@ -379,6 +378,7 @@ def test_import_survives_restart(ctx, tmp_path, monkeypatch):
     try:
         assert again.ofp == ctx.ofp
     finally:
+        again._timer.stop()
         again.voice.shutdown()
 
 

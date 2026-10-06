@@ -112,8 +112,7 @@ def ctx(qtbot, tmp_path):
     c.voice.drop_unless = lambda tags: dropped.append(set(tags))
     c.said, c.dropped = said, dropped
     yield c
-    c.stop_sim()
-    c.voice.shutdown()
+    c.shutdown()
 
 
 def test_nothing_is_spoken_for_a_conversation_nobody_is_viewing(ctx):
