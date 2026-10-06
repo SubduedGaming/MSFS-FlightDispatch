@@ -45,3 +45,15 @@ def test_executor_post_keeps_order():
         assert out == list(range(20))
     finally:
         ex.close()
+
+
+def test_event_matches_the_qt_signal_surface():
+    from skydispatch.core.events import Event
+    ev, seen = Event(), []
+    f = lambda a, b: seen.append((a, b))
+    ev.connect(f)
+    ev.connect(lambda a, b: 1 / 0)                 # a failing handler does not stop the others
+    ev.emit(1, 2)
+    ev.disconnect(f)
+    ev.emit(3, 4)
+    assert seen == [(1, 2)]

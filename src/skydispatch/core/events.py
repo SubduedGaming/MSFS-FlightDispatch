@@ -33,3 +33,33 @@ class EventBus:
                 fn(*args)
             except Exception:
                 log.exception("event handler for %r failed", name)
+
+
+class Event:
+    """One named signal with the same ``connect`` / ``disconnect`` / ``emit`` surface as a Qt ``Signal``, so code written
+    against ``ctx.toast.connect(fn)`` runs unchanged with or without Qt. ``emit`` calls subscribers on the caller's
+    thread."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._subs: list[Callable[..., Any]] = []
+
+    def connect(self, fn: Callable[..., Any]) -> None:
+        with self._lock:
+            self._subs.append(fn)
+
+    def disconnect(self, fn: Callable[..., Any] | None = None) -> None:
+        with self._lock:
+            if fn is None:
+                self._subs.clear()
+            elif fn in self._subs:
+                self._subs.remove(fn)
+
+    def emit(self, *args: Any) -> None:
+        with self._lock:
+            subs = list(self._subs)
+        for fn in subs:
+            try:
+                fn(*args)
+            except Exception:
+                log.exception("event handler failed")

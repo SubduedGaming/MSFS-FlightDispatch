@@ -3,7 +3,7 @@
 Security model: the page and script are public (they hold no data); everything under /api needs the session cookie
 that ``POST /api/login`` sets after the access code is typed once. The cookie is HttpOnly + SameSite=Strict, writes
 need a custom header, and wrong codes are rate limited. Nothing here ever touches the sim or database off the GUI
-thread: requests are marshalled through ``MainThread``.
+thread: requests are marshalled onto the engine thread (``ctx.main``).
 """
 from __future__ import annotations
 
@@ -23,7 +23,6 @@ from urllib.parse import parse_qsl, urlsplit
 
 from .. import __version__
 from .api import Csv, RemoteApi
-from .mainthread import MainThread
 
 log = logging.getLogger("skydispatch.web")
 
@@ -257,12 +256,12 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 class WebRemote:
-    """Owns the HTTP server. Create it on the GUI thread once; set host/port/token and start/stop as often as needed."""
+    """Owns the HTTP server. Create it once; set host/port/token and start/stop as often as needed."""
 
     def __init__(self, ctx, host: str = "0.0.0.0", port: int = 0, token: str = ""):
         self.ctx, self.host, self.port, self.token = ctx, host, port, token
         self.hub = Hub()
-        self.main = MainThread()
+        self.main = ctx.main                  # the engine thread: .post(fn) and .run(fn, timeout)
         self.api = RemoteApi(ctx, self.hub.publish, self.main.post)
         self.stopping = False
         self._server: _Server | None = None
