@@ -113,3 +113,38 @@ def test_restart_closes_interrupted_flight_and_rearms_job(career):
     assert career.db.flight(fid).outcome == "aborted"
     assert career.db.job(job.id).status == "accepted"
     assert career.recorder is not None and career.active_job.id == job.id
+
+
+def test_end_flight_button_settles_and_pays(career):
+    import dataclasses
+    job = _pick_job(career)
+    career.accept_job(job.id, career.db.hangar()[0].id)
+    dest = career.db.airport(job.dest)
+    o = career.db.airport(job.origin)
+    from skydispatch.sim.base import SimState
+    t = [0.0]
+
+    def feed(**kw):
+        t[0] += 1.0
+        base = dict(timestamp=t[0], lat=o.lat, lon=o.lon, engine_running=True, parking_brake=False, gs=10, ias=10,
+                    fuel_gal=40, title="Cessna 172 Skyhawk", on_ground=True)
+        base.update(kw)
+        career.feed(SimState(**base))
+
+    feed()
+    assert not career.can_end_flight() or career.recorder.landings == 0
+    feed(gs=60, ias=60)
+    feed(on_ground=False, ias=90, gs=90, vs=600, alt_msl=300, alt_agl=300)
+    assert not career.can_end_flight()
+    import pytest as _p
+    from skydispatch.career import CareerError
+    with _p.raises(CareerError):
+        career.end_flight()
+    for _ in range(40):
+        feed(on_ground=False, ias=100, gs=100, vs=0, alt_msl=3000, alt_agl=3000, lat=dest.lat, lon=dest.lon)
+    feed(on_ground=True, ias=60, gs=60, vs=-120, lat=dest.lat, lon=dest.lon)
+    feed(gs=0, ias=0, lat=dest.lat, lon=dest.lon)
+    assert career.can_end_flight()
+    career.end_flight()
+    assert career.last_settlement and career.last_settlement.metrics.outcome == "completed"
+    assert career.db.job(job.id).status == "completed" and not career.can_end_flight()

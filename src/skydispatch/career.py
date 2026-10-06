@@ -217,6 +217,21 @@ class Career:
                 self._fire("job_abandoned", job=job)
                 self._fire("pilot_changed")
 
+    def can_end_flight(self) -> bool:
+        rec = self.recorder
+        return bool(rec and rec.started and not rec.finished and (rec.landings or not rec.air_s))
+
+    def end_flight(self) -> None:
+        """Finish the recorded flight now and settle it (pay, costs, logbook, hangar). The aircraft must be on the ground."""
+        with self._lock:
+            rec = self.recorder
+            if not (rec and rec.started and not rec.finished):
+                raise CareerError("There is no flight in progress to end.")
+            try:
+                rec.end_now()
+            except ValueError as exc:
+                raise CareerError(str(exc)) from None
+
     # ------------------------------------------------------------- recording
     def resume(self) -> None:
         """After an app restart: close flights that were interrupted and re-arm the accepted job."""

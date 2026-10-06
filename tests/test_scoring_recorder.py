@@ -1,3 +1,4 @@
+import pytest
 import dataclasses
 
 from skydispatch.data.aircraft import get_type, match_title
@@ -104,3 +105,38 @@ def test_short_hop_is_not_a_landing():
     f.step(on_ground=False, ias=65, gs=65, vs=300, alt_msl=20, alt_agl=20)
     f.step(on_ground=True, ias=60, gs=60, vs=-100)
     assert rec.landings == 0
+
+
+def _land_at(rec, f, lat, lon):
+    f.step()
+    f.step(gs=60, ias=60)
+    f.step(on_ground=False, ias=70, gs=70, vs=600, alt_msl=300, alt_agl=300)
+    for _ in range(40):
+        f.step(on_ground=False, ias=100, gs=100, vs=0, alt_msl=3000, alt_agl=3000)
+    f.step(on_ground=True, ias=60, gs=60, vs=-120, lat=lat, lon=lon)
+
+
+def test_end_now_settles_a_landed_flight_that_was_never_detected_as_parked():
+    events = []
+    rec = FlightRecorder(apt("AAAA", 51.0, 0.0), apt("BBBB", 51.0, 0.5), get_type("c172"), 0,
+                         on_event=lambda k, d, data: events.append(k))
+    f = Feeder(rec)
+    _land_at(rec, f, 51.0, 0.5)
+    f.step(gs=0, ias=0, lat=51.0, lon=0.5)             # stopped, but engines running and brake off: not "parked"
+    assert not rec.finished
+    assert rec.end_now() and rec.finished and rec.outcome == "completed" and "arrived" in events
+
+
+def test_end_now_refuses_in_the_air_and_aborts_if_never_landed():
+    rec = FlightRecorder(apt("AAAA", 51.0, 0.0), apt("BBBB", 51.0, 0.5), get_type("c172"), 0)
+    f = Feeder(rec)
+    f.step()
+    f.step(gs=60, ias=60)
+    f.step(on_ground=False, ias=70, gs=70, vs=600, alt_msl=300, alt_agl=300)
+    with pytest.raises(ValueError):
+        rec.end_now()
+    rec2 = FlightRecorder(None, None, get_type("c172"), 0)
+    f2 = Feeder(rec2)
+    f2.step()
+    f2.step(gs=5)
+    assert rec2.started and rec2.end_now() and rec2.outcome == "aborted"

@@ -288,24 +288,41 @@ class FlightRecorder:
         stopped = s.gs < 3
         parked = stopped and (s.parking_brake or not s.engine_running)
         if parked:
-            near = None
-            if self.dest and geo.distance_nm(s.lat, s.lon, self.dest.lat, self.dest.lon) <= self.cfg.arrive_radius_nm:
-                near = self.dest
-            elif self._nearest:
-                cand = self._nearest(s.lat, s.lon)
-                if cand and geo.distance_nm(s.lat, s.lon, cand.lat, cand.lon) <= self.cfg.arrive_radius_nm:
-                    near = cand
-            self.arrival = near
-            if self.dest is None or near is None:
-                self._emit("diverted", "Parked away from any known airport")
-                self._finish("diverted" if self.dest else "completed", s)
-            elif near.icao != self.dest.icao:
-                self._emit("diverted", f"Parked at {near.icao} instead of {self.dest.icao}")
-                self._finish("diverted", s)
-            else:
-                self.phase = "arrived"
-                self._emit("arrived", f"Parked at {near.icao}")
-                self._finish("completed", s)
+            self._arrive(s)
+
+    def end_now(self) -> bool:
+        """The pilot ends the flight by hand (arrival was not detected: engines left running, brake off, stopped on a
+        taxiway). Settles it as if parked here. A flight that never landed is aborted. Raises if still airborne."""
+        if not self.started or self.finished:
+            return False
+        s = self._last
+        if s is not None and not s.on_ground:
+            raise ValueError("The aircraft is still in the air.")
+        if not self.landings or s is None:
+            self._finish("aborted", s)
+        else:
+            self._arrive(s)
+        return True
+
+    def _arrive(self, s: SimState) -> None:
+        near = None
+        if self.dest and geo.distance_nm(s.lat, s.lon, self.dest.lat, self.dest.lon) <= self.cfg.arrive_radius_nm:
+            near = self.dest
+        elif self._nearest:
+            cand = self._nearest(s.lat, s.lon)
+            if cand and geo.distance_nm(s.lat, s.lon, cand.lat, cand.lon) <= self.cfg.arrive_radius_nm:
+                near = cand
+        self.arrival = near
+        if self.dest is None or near is None:
+            self._emit("diverted", "Parked away from any known airport")
+            self._finish("diverted" if self.dest else "completed", s)
+        elif near.icao != self.dest.icao:
+            self._emit("diverted", f"Parked at {near.icao} instead of {self.dest.icao}")
+            self._finish("diverted", s)
+        else:
+            self.phase = "arrived"
+            self._emit("arrived", f"Parked at {near.icao}")
+            self._finish("completed", s)
 
     def _finish(self, outcome: str, s: SimState | None) -> None:
         self.outcome = outcome

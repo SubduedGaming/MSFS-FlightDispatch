@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.3
+- Fix: **fuel was not loaded into the sim aircraft** (payload was). MSFS ignores writes to a tank's quantity on some
+  aircraft such as the C172, so fuel is now set by tank level, falling back to quantity on the retry.
+- New: **End flight** button (Flight page, desktop and web remote). If arrival was not detected because the engines were
+  left running or the brake was off, it finishes the flight and settles it: pay, costs, logbook, hangar. A flight that
+  never landed is logged as aborted; it is refused while the aircraft is still in the air.
+
 ## 1.4.2
 - Fix: the update dialog (and the quit warning, and accepting a job) wrongly said "Flight in progress" right after
   landing. The recorder begins a new log as soon as the engines are running and the aircraft rolls or the brake is off,

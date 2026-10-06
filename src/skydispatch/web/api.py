@@ -239,6 +239,11 @@ class RemoteApi:
                                      f"speech in {'ready' if stt_ok else 'unavailable'}"},
                 "flights": flights}
 
+        @r("POST", "/api/flight/end")
+        def end_flight(q, body):
+            self.career.end_flight()
+            return {"ok": True}
+
         @r("POST", "/api/job/abandon")
         def abandon(q, body):
             self.career.abandon_job()
@@ -255,7 +260,7 @@ class RemoteApi:
             prov = self.ctx.provider
             latest = prov.latest() if prov else None
             data = self._state_json(latest)
-            data.update({"job": self._job_card(job), "has_job": job is not None,
+            data.update({"job": self._job_card(job), "has_job": job is not None, "can_end": self.career.can_end_flight(),
                          "route": self._route_json(job.origin if job else None, job.dest if job else None),
                          "events": self._flight_events[-60:], "can_demo": self.ctx.simulated is not None,
                          "link": {"status": prov.status if prov else "disconnected"},

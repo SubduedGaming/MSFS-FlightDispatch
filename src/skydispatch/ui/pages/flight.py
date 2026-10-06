@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QListWidget, QM
 
 from ...data.aircraft import get_type
 from ...data.employers import flight_label
+from ...career import CareerError
 from ...sim.base import SimState
 from .. import fmt
 from ..copilot_panel import CopilotPanel
@@ -92,8 +93,13 @@ class FlightPage(Page):
         self.btn_abandon = QPushButton("Abandon flight")
         self.btn_abandon.setObjectName("danger")
         self.btn_abandon.clicked.connect(self._abandon)
+        self.btn_end = QPushButton("End flight")
+        self.btn_end.setToolTip("Finish the flight now and settle it: pay, costs, logbook. Use it when parking at the "
+                                "destination was not detected. The aircraft must be on the ground.")
+        self.btn_end.clicked.connect(self._end)
         btns.addWidget(self.btn_demo)
         btns.addStretch(1)
+        btns.addWidget(self.btn_end)
         btns.addWidget(self.btn_abandon)
         root.addLayout(btns)
 
@@ -141,6 +147,7 @@ class FlightPage(Page):
         else:
             self.job_lbl.setText("Free flight: no contract. Everything you fly is still logged to your logbook.")
         self.btn_abandon.setVisible(job is not None)
+        self.btn_end.setVisible(self.career.can_end_flight())
         self.btn_demo.setVisible(self.ctx.simulated is not None)
         self.btn_demo.setEnabled(job is not None)
         live = self.career.live()
@@ -151,6 +158,7 @@ class FlightPage(Page):
             return
         live = self.career.live()
         phase = live.phase if live else "parked"
+        self.btn_end.setVisible(self.career.can_end_flight())
         self.phase_lbl.setText(PHASE_LABEL.get(phase, phase))
         c = self.cells
         c["alt"].setText(f"{s.alt_msl:,.0f} ft")
@@ -174,6 +182,15 @@ class FlightPage(Page):
             QMessageBox.information(self, "Demo flight", err)
         else:
             self.events.addItem("Demo flight started (time is accelerated).")
+
+    def _end(self) -> None:
+        if QMessageBox.question(self, "End flight", "End this flight now and settle it?") != QMessageBox.Yes:
+            return
+        try:
+            self.career.end_flight()
+        except CareerError as exc:
+            QMessageBox.information(self, "End flight", str(exc))
+        self.refresh()
 
     def _abandon(self) -> None:
         if QMessageBox.question(self, "Abandon flight", "Abandon the current job? Reputation will suffer.") \

@@ -167,6 +167,7 @@ class FakeSim:
         for i in range(1, stations + 1):
             self.v[f"PAYLOAD_STATION_WEIGHT:{i}"] = 0.0
         self.accept, self.writes = accept, []
+        self.level_works, self.quantity_works = True, True
         self.accept_after = accept_after_writes           # ignore this many writes first (a sim that is still settling)
 
     def get(self, name):
@@ -177,7 +178,13 @@ class FakeSim:
     def set(self, name, value):
         self.writes.append((name, value))
         if self.accept and len(self.writes) > self.accept_after:
-            self.v[name] = value
+            if name.endswith("_LEVEL") and self.level_works:
+                tank = name[len("FUEL_TANK_"):-len("_LEVEL")]
+                self.v[f"FUEL_TANK_{tank}_QUANTITY"] = value * self.v[f"FUEL_TANK_{tank}_CAPACITY"]
+            elif not name.endswith("_LEVEL") and self.quantity_works:
+                self.v[name] = value
+            elif not name.endswith(("_LEVEL", "_QUANTITY")):
+                self.v[name] = value
         return self.accept
 
 
@@ -557,3 +564,17 @@ def test_loading_still_works_when_the_recording_started_at_spawn(ctx, qtbot):
         ctx.sync_loadout()
     assert ctx.provider._state.fuel_gal > 3.0
     assert ctx.career.recorder.fuel_start == pytest.approx(ctx.provider._state.fuel_gal)   # fuel used is measured from here
+
+
+def test_fuel_falls_back_to_quantity_when_the_sim_ignores_tank_level():
+    sim = FakeSim({"LEFT_MAIN": 20.0, "RIGHT_MAIN": 20.0}, 3)
+    sim.level_works = False
+    res = lo.apply_loadout(sim, lo.Loadout(30.0, 0, 0, "hangar"), C172, sleep=lambda s: None)
+    assert res.fuel_ok and res.fuel_gal == 30.0
+
+
+def test_fuel_by_tank_level_is_the_first_choice():
+    sim = FakeSim({"LEFT_MAIN": 20.0, "RIGHT_MAIN": 20.0}, 3)
+    sim.quantity_works = False                      # the C172 in MSFS: QUANTITY writes are ignored
+    res = lo.apply_loadout(sim, lo.Loadout(30.0, 0, 0, "hangar"), C172, sleep=lambda s: None)
+    assert res.fuel_ok and res.fuel_gal == 30.0 and not any(n.endswith("_QUANTITY") for n, _ in sim.writes)

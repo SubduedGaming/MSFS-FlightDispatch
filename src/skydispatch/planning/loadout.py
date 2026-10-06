@@ -175,10 +175,19 @@ def apply_loadout(sim: SimVars, plan: Loadout, atype: AircraftType,
     if not caps:
         res.messages.append("Could not read the aircraft's fuel tanks, so fuel was not changed.")
 
+    passes = [0]
+
     def write() -> None:
+        # MSFS often ignores writes to a tank's QUANTITY (the C172 did) but honours its LEVEL (fraction of capacity), so
+        # try the level first and fall back to the quantity on the second pass.
+        by_level = passes[0] % 2 == 0
+        passes[0] += 1
         for t, cap in caps.items():
-            ok = sim.set(f"FUEL_TANK_{t}_QUANTITY", round(cap * target_fuel / total_cap, 2))
-            log.debug("set %s quantity -> %s", t, ok)
+            if by_level:
+                ok = sim.set(f"FUEL_TANK_{t}_LEVEL", round(target_fuel / total_cap, 4))
+            else:
+                ok = sim.set(f"FUEL_TANK_{t}_QUANTITY", round(cap * target_fuel / total_cap, 2))
+            log.debug("set %s (%s) -> %s", t, "level" if by_level else "quantity", ok)
         for i, w in weights.items():
             ok = sim.set(f"PAYLOAD_STATION_WEIGHT:{i}", w)
             log.debug("set payload station %d = %.1f -> %s", i, w, ok)

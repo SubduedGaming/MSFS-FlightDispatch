@@ -464,7 +464,8 @@ loaders.flight = async (root) => {
     h('div', { class: 'cols' }, h('div', {}, cv), h('div', {}, h('div', { class: 'card' }, grid), body)),
     h('div', { class: 'row', style: 'margin-top:12px' },
       f.can_demo ? btn('Start demo flight (simulated mode)', () => act(() => post('/api/flight/demo')), 'primary', { disabled: !f.has_job }) : null,
-      h('span', { class: 'grow' }), f.has_job ? btn('Abandon flight', () => { if (confirm('Abandon the current job? Reputation will suffer.')) act(() => post('/api/job/abandon')); }, 'danger') : null));
+      h('span', { class: 'grow' }), f.can_end ? btn('End flight', () => { if (confirm('End this flight now and settle it?')) act(() => post('/api/flight/end')); }, '') : null,
+      f.has_job ? btn('Abandon flight', () => { if (confirm('Abandon the current job? Reputation will suffer.')) act(() => post('/api/job/abandon')); }, 'danger') : null));
   showTab(); requestAnimationFrame(paint); drawPlan();
   const onResize = debounce(paint, 150);
   window.addEventListener('resize', onResize);
