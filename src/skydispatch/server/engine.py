@@ -44,10 +44,13 @@ from .. import __version__, updater
 from ..voice import tts as tts_mod
 from ..voice.characters import voices_in_use
 from ..voice.service import VoiceService
+from .discovery import Advertiser
+from .pairing import PairingManager, format_code, lan_addresses, pair_uri
 
 log = logging.getLogger(__name__)
 
 TICK_SECONDS = 30
+CURRENCIES = ("$", "£", "€", "¥")
 
 
 class Engine:
@@ -72,6 +75,8 @@ class Engine:
         self.share_error = ""
         self.web = None                       # web.server.WebRemote, created on first start_web()
         self.web_error = ""
+        self.advertiser = Advertiser()
+        self.pairing = PairingManager()      # phones paired with this server (devices.json)
         self.update_info: updater.UpdateInfo | None = None
         self.ofp: simbrief.Ofp | None = None
         try:
@@ -610,8 +615,10 @@ class Engine:
             self.toast.emit("warn", self.web_error)
             return
         self.web_error = ""
+        self.advertiser.start(r.port)
 
     def stop_web(self) -> None:
+        self.advertiser.stop()
         if self.web is not None and self.web.running:
             self.web.stop()
 
@@ -962,3 +969,76 @@ class Engine:
                 self.career.refresh_market()
         except Exception:
             log.exception("periodic tick failed")
+
+    # ------------------------------------------------------------- new career
+    def career_options(self) -> dict:
+        """What a new pilot can choose from (the phone's setup screen)."""
+        from ..data.aircraft import STARTER_IDS, get_type
+        from ..pilot.quals import EXPERIENCE_PRESETS
+        from ..sim.installed import installed_types
+        s = self.settings
+        installed = installed_types(s, self.db)
+        starters = [{"id": tid, "name": get_type(tid).name, "installed": installed is None or tid in installed}
+                    for tid in STARTER_IDS if get_type(tid)]
+        return {"starters": starters,
+                "experience": [{"id": k, "label": v[0]} for k, v in EXPERIENCE_PRESETS.items()],
+                "difficulty": ["relaxed", "normal", "realistic"], "currencies": list(CURRENCIES),
+                "defaults": {"name": s.pilot.name if s.pilot.name != "Captain" else "", "callsign": s.pilot.callsign,
+                             "home": s.pilot.home_icao, "balance": s.game.start_balance,
+                             "difficulty": s.game.difficulty, "currency": s.ui.currency,
+                             "experience": "new", "aircraft": starters[1]["id"] if len(starters) > 1 else ""}}
+
+    def create_career(self, name: str, home: str, aircraft: str, callsign: str = "", experience: str = "new",
+                      difficulty: str = "normal", balance: float | None = None, currency: str | None = None) -> None:
+        """Start a new career (replacing any existing one). Raises CareerError for choices that are not allowed."""
+        from ..data.aircraft import STARTER_IDS
+        from ..pilot.quals import EXPERIENCE_PRESETS, apply_experience_preset
+        from ..sim.installed import installed_types
+        s = self.settings
+        name = " ".join(str(name).split())[:40]
+        home = str(home).strip().upper()
+        if not name:
+            raise CareerError("Enter your pilot name.")
+        if not self.db.airport(home):
+            raise CareerError(f"I don't know an airport called '{home}'. Use its ICAO code, for example EGLL or KSEA.")
+        if aircraft not in STARTER_IDS:
+            raise CareerError("Choose one of the starter aircraft.")
+        installed = installed_types(s, self.db)
+        if installed is not None and any(t in installed for t in STARTER_IDS) and aircraft not in installed:
+            raise CareerError("That aircraft is not installed in your simulator.")
+        if experience not in EXPERIENCE_PRESETS:
+            raise CareerError("Choose your flying experience.")
+        if difficulty not in ("relaxed", "normal", "realistic"):
+            raise CareerError("Choose a difficulty.")
+        if currency is not None and currency not in CURRENCIES:
+            raise CareerError("Choose a currency.")
+        amount = s.game.start_balance if balance is None else float(balance)
+        if not 0 <= amount <= 5_000_000:
+            raise CareerError("The starting balance must be between 0 and 5,000,000.")
+        s.pilot.name = name
+        s.pilot.callsign = "".join(ch for ch in str(callsign).upper() if ch.isalnum())[:8] or "SKY1"
+        s.pilot.home_icao = home
+        if currency:
+            s.ui.currency = currency
+        s.game.difficulty, s.game.start_balance = difficulty, amount
+        s.ui.first_run_complete = True
+        self.career.start_career(s.pilot.name, s.pilot.callsign, home, aircraft, amount)
+        apply_experience_preset(self.db, experience)
+        self.db.clear_messages()
+        self.apply_settings()
+        if self.provider is None:
+            self.start_sim()
+        self.check_ai()
+
+    # --------------------------------------------------------------- pairing
+    def pairing_info(self, new_code: bool = False) -> dict:
+        """What the admin window shows to pair a phone: the address, a one-time code and the QR text."""
+        if new_code or not self.pairing.code_state()[0]:
+            self.pairing.new_code()
+        code, left = self.pairing.code_state()
+        port = self.settings.remote.port
+        hosts = lan_addresses()
+        return {"running": bool(self.web and self.web.running), "port": port, "addresses": hosts,
+                "code": format_code(code), "expires_in": int(left),
+                "uri": pair_uri(hosts[0], port, code) if hosts else "",
+                "urls": [f"http://{h}:{port}/" for h in hosts]}

@@ -25,11 +25,14 @@ tts = ["piper-tts>=1.2", "sounddevice>=0.4", "numpy>=1.24"]
 # Push-to-talk key that works while MSFS has focus.
 hotkey = ["pynput>=1.7"]
 voice = ["skydispatch[stt,tts,hotkey]"]
+# Announce the server on the LAN so the phone can find it.
+discovery = ["zeroconf>=0.130"]
 dev = ["pytest>=8", "pytest-qt>=4.4", "pyinstaller>=6.5", "numpy>=1.24"]
 
 [project.scripts]
 skydispatch = "skydispatch.__main__:main"
 skydispatch-bridge = "skydispatch.sim.bridge_server:main"
+skydispatch-server = "skydispatch.server.cli:main"
 
 [project.gui-scripts]
 skydispatch-gui = "skydispatch.__main__:main"

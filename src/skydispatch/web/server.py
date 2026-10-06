@@ -22,10 +22,13 @@ from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 
 from .. import __version__
+from ..server.pairing import PairingError
 from .api import Csv, RemoteApi
 
 log = logging.getLogger("skydispatch.web")
 
+API_VERSION = 1
+V1 = "/api/v1/"
 MAX_BODY = 64 * 1024
 MAX_STREAMS = 16
 COOKIE = "sd_session"
@@ -127,7 +130,18 @@ class _Handler(BaseHTTPRequestHandler):
         self._send(status, json.dumps(obj, default=str).encode(), "application/json; charset=utf-8",
                    {"Cache-Control": "no-store", **(extra or {})})
 
+    def _bearer_device(self):
+        """The paired phone whose device token is in the Authorization header, or None."""
+        header = self.headers.get("Authorization") or ""
+        scheme, _, value = header.partition(" ")
+        if scheme.lower() != "bearer" or not value.strip():
+            return None
+        pairing = getattr(self.remote.ctx, "pairing", None)
+        return pairing.authenticate(value.strip()) if pairing else None
+
     def _authed(self) -> bool:
+        if self._bearer_device() is not None:
+            return True
         token = self.remote.token
         if not token:
             return False                              # an unset access code never lets anyone in
@@ -153,13 +167,19 @@ class _Handler(BaseHTTPRequestHandler):
         return data if isinstance(data, dict) else None
 
     # ---------------------------------------------------------------- verbs
+    @staticmethod
+    def _v1(path: str) -> str:
+        """The app's /api/v1/... is the same API as the browser's /api/..."""
+        return "/api/" + path[len(V1):] if path.startswith(V1) else path
+
     def do_GET(self) -> None:
         url = urlsplit(self.path)
-        path, query = url.path, dict(parse_qsl(url.query))
+        path, query = self._v1(url.path), dict(parse_qsl(url.query))
         if not path.startswith("/api/"):
             return self._static(path)
         if path == "/api/ping":
-            return self._json(200, {"app": "SkyDispatch", "version": __version__, "authed": self._authed()})
+            return self._json(200, {"app": "SkyDispatch", "version": __version__, "api": API_VERSION,
+                                    "authed": self._authed()})
         if not self._authed():
             return self._json(401, {"error": "Sign in with your access code."})
         if path == "/api/stream":
@@ -168,18 +188,29 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         url = urlsplit(self.path)
-        if self.headers.get("X-SkyDispatch") != "1":
+        path = self._v1(url.path)
+        device = self._bearer_device()
+        # Browsers send cookies on their own, so cookie requests must prove they are ours with a custom header; an
+        # explicit Authorization header cannot be forged by another website.
+        if device is None and self.headers.get("X-SkyDispatch") != "1":
             return self._json(403, {"error": "Forbidden"})
         body = self._read_body()
         if body is None:
             return self._json(400, {"error": "Invalid request body"})
-        if url.path == "/api/login":
+        if path == "/api/login":
             return self._login(body)
-        if url.path == "/api/logout":
+        if path == "/api/pair":
+            return self._pair(body)
+        if path == "/api/logout":
             return self._json(200, {"ok": True}, {"Set-Cookie": f"{COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict"})
-        if not self._authed():
+        if device is None and not self._authed():
             return self._json(401, {"error": "Sign in with your access code."})
-        self._api("POST", url.path, dict(parse_qsl(url.query)), body)
+        if path == "/api/unpair":
+            if device is None:
+                return self._json(400, {"error": "Only a paired phone can unpair itself."})
+            self.remote.ctx.pairing.revoke(device.id)
+            return self._json(200, {"ok": True})
+        self._api("POST", path, dict(parse_qsl(url.query)), body)
 
     # ---------------------------------------------------------------- handlers
     def _login(self, body: dict) -> None:
@@ -196,6 +227,21 @@ class _Handler(BaseHTTPRequestHandler):
         self.remote.clear_failures(ip)
         cookie = f"{COOKIE}={session_value(token)}; Path=/; Max-Age={30 * 86400}; HttpOnly; SameSite=Strict"
         self._json(200, {"ok": True}, {"Set-Cookie": cookie})
+
+    def _pair(self, body: dict) -> None:
+        ip = self.client_address[0]
+        wait = self.remote.lockout_remaining(ip)
+        if wait > 0:
+            return self._json(429, {"error": f"Too many wrong codes. Try again in {wait:.0f} s."})
+        try:
+            device, token = self.remote.ctx.pairing.redeem(str(body.get("code", "")), str(body.get("device_name", "")))
+        except PairingError as exc:
+            self.remote.note_failure(ip)
+            log.warning("Rejected pairing request from %s", ip)
+            return self._json(401, {"error": str(exc)})
+        self.remote.clear_failures(ip)
+        self._json(200, {"token": token, "device_id": device.id, "app": "SkyDispatch", "version": __version__,
+                         "api": API_VERSION})
 
     def _api(self, method: str, path: str, query: dict, body: dict | None) -> None:
         try:

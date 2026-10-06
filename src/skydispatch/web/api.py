@@ -200,6 +200,20 @@ class RemoteApi:
                     "ai_online": self.ctx.dispatcher.online, "has_job": self.db.active_job() is not None,
                     "update": {"version": u.version, "url": u.page_url} if u else None}
 
+        @r("GET", "/api/career/options")
+        def career_options(q, body):
+            return self.ctx.career_options()
+
+        @r("POST", "/api/career")
+        def create_career(q, body):
+            if self.db.pilot() and body.get("confirm_reset") is not True:
+                raise ApiError(409, "A career already exists. Send confirm_reset=true to replace it (this erases it).")
+            self.ctx.create_career(body.get("name", ""), body.get("home", ""), body.get("aircraft", ""),
+                                   callsign=body.get("callsign", ""), experience=body.get("experience", "new"),
+                                   difficulty=body.get("difficulty", "normal"), balance=body.get("balance"),
+                                   currency=body.get("currency"))
+            return {"ok": True}
+
         @r("GET", "/api/dashboard")
         def dashboard(q, body):
             s, pilot = self.settings, self._pilot()

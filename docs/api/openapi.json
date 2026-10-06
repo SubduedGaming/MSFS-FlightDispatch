@@ -1,0 +1,2022 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "SkyDispatch server API",
+    "version": "1.0.0",
+    "description": "The API the Android app uses. Every route is under `/api/v1`. Authenticate with `Authorization: Bearer <device token>` from `POST /api/v1/pair`. Errors are `{\"error\": \"message\"}`. Routes other than the ones with explicit schemas return JSON shaped for display (preformatted text for units and money)."
+  },
+  "servers": [
+    {
+      "url": "http://{host}:{port}",
+      "variables": {
+        "host": {
+          "default": "192.168.1.20"
+        },
+        "port": {
+          "default": "8766"
+        }
+      }
+    }
+  ],
+  "security": [
+    {
+      "bearer": []
+    }
+  ],
+  "paths": {
+    "/api/v1/career": {
+      "post": {
+        "operationId": "create_career_post",
+        "summary": "Create career",
+        "tags": [
+          "Career"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "description": "A career exists; send confirm_reset=true to replace it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A choice is not allowed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewCareer"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/career/options": {
+      "get": {
+        "operationId": "career_options_get",
+        "summary": "Career options",
+        "tags": [
+          "Career"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/v1/copilot": {
+      "get": {
+        "operationId": "copilot_get",
+        "summary": "Copilot",
+        "tags": [
+          "Copilot"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        }
+      }
+    },
+    "/api/v1/copilot/ask": {
+      "post": {
+        "operationId": "copilot_ask_post",
+        "summary": "Copilot ask",
+        "tags": [
+          "Copilot"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "quick": {},
+                  "text": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/copilot/callouts": {
+      "post": {
+        "operationId": "callouts_post",
+        "summary": "Callouts",
+        "tags": [
+          "Copilot"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "on": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dashboard": {
+      "get": {
+        "operationId": "dashboard_get",
+        "summary": "Dashboard",
+        "tags": [
+          "Core"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        }
+      }
+    },
+    "/api/v1/dealer": {
+      "get": {
+        "operationId": "dealer_get",
+        "summary": "Dealer",
+        "tags": [
+          "Hangar"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        }
+      }
+    },
+    "/api/v1/employer/{eid}": {
+      "get": {
+        "operationId": "employer_get",
+        "summary": "Employer",
+        "tags": [
+          "Job board"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        },
+        "parameters": [
+          {
+            "name": "eid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/employer/{eid}/apply": {
+      "post": {
+        "operationId": "apply_post",
+        "summary": "Apply",
+        "tags": [
+          "Job board"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        },
+        "parameters": [
+          {
+            "name": "eid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/employer/{eid}/resign": {
+      "post": {
+        "operationId": "resign_post",
+        "summary": "Resign",
+        "tags": [
+          "Job board"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        },
+        "parameters": [
+          {
+            "name": "eid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/finance": {
+      "get": {
+        "operationId": "finance_get",
+        "summary": "Finance",
+        "tags": [
+          "Finances"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        }
+      }
+    },
+    "/api/v1/flight": {
+      "get": {
+        "operationId": "flight_get",
+        "summary": "Flight",
+        "tags": [
+          "Flight"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        }
+      }
+    },
+    "/api/v1/flight/demo": {
+      "post": {
+        "operationId": "demo_post",
+        "summary": "Demo",
+        "tags": [
+          "Flight"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/flight/end": {
+      "post": {
+        "operationId": "end_flight_post",
+        "summary": "End flight",
+        "tags": [
+          "Flight"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/hangar": {
+      "get": {
+        "operationId": "hangar_get",
+        "summary": "Hangar",
+        "tags": [
+          "Hangar"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        }
+      }
+    },
+    "/api/v1/hangar/buy": {
+      "post": {
+        "operationId": "buy_post",
+        "summary": "Buy",
+        "tags": [
+          "Hangar"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "location": {},
+                  "nickname": {},
+                  "type_id": {},
+                  "used": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/hangar/{aid}/{action}": {
+      "post": {
+        "operationId": "hangar_action_post",
+        "summary": "Hangar action",
+        "tags": [
+          "Hangar"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        },
+        "parameters": [
+          {
+            "name": "aid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "action",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "nickname": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/job/abandon": {
+      "post": {
+        "operationId": "abandon_post",
+        "summary": "Abandon",
+        "tags": [
+          "Flight"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/jobboard": {
+      "get": {
+        "operationId": "jobboard_get",
+        "summary": "Jobboard",
+        "tags": [
+          "Job board"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        }
+      }
+    },
+    "/api/v1/logbook": {
+      "get": {
+        "operationId": "logbook_get",
+        "summary": "Logbook",
+        "tags": [
+          "Logbook"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        }
+      }
+    },
+    "/api/v1/logbook.csv": {
+      "get": {
+        "operationId": "logbook_csv_get",
+        "summary": "Logbook csv",
+        "tags": [
+          "Logbook"
+        ],
+        "responses": {
+          "200": {
+            "description": "CSV file",
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        }
+      }
+    },
+    "/api/v1/logbook/{fid}": {
+      "get": {
+        "operationId": "logbook_flight_get",
+        "summary": "Logbook flight",
+        "tags": [
+          "Logbook"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        },
+        "parameters": [
+          {
+            "name": "fid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/market": {
+      "get": {
+        "operationId": "market_get",
+        "summary": "Market",
+        "tags": [
+          "Freelance"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        },
+        "parameters": [
+          {
+            "name": "flyable",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/market/refresh": {
+      "post": {
+        "operationId": "market_refresh_post",
+        "summary": "Market refresh",
+        "tags": [
+          "Freelance"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/market/{jid}": {
+      "get": {
+        "operationId": "market_job_get",
+        "summary": "Market job",
+        "tags": [
+          "Freelance"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        },
+        "parameters": [
+          {
+            "name": "jid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/market/{jid}/accept": {
+      "post": {
+        "operationId": "market_accept_post",
+        "summary": "Market accept",
+        "tags": [
+          "Freelance"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        },
+        "parameters": [
+          {
+            "name": "jid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "aircraft_id": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/market/{jid}/ask": {
+      "post": {
+        "operationId": "market_ask_post",
+        "summary": "Market ask",
+        "tags": [
+          "Freelance"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        },
+        "parameters": [
+          {
+            "name": "jid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/market/{jid}/decline": {
+      "post": {
+        "operationId": "market_decline_post",
+        "summary": "Market decline",
+        "tags": [
+          "Freelance"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        },
+        "parameters": [
+          {
+            "name": "jid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/offer/{jid}/accept": {
+      "post": {
+        "operationId": "offer_accept_post",
+        "summary": "Offer accept",
+        "tags": [
+          "Messenger"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        },
+        "parameters": [
+          {
+            "name": "jid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "thread": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/offer/{jid}/decline": {
+      "post": {
+        "operationId": "offer_decline_post",
+        "summary": "Offer decline",
+        "tags": [
+          "Messenger"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        },
+        "parameters": [
+          {
+            "name": "jid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "thread": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pair": {
+      "post": {
+        "operationId": "pair",
+        "tags": [
+          "Connection"
+        ],
+        "security": [],
+        "summary": "Trade the one-time code from the QR for a device token",
+        "description": "Send the header `X-SkyDispatch: 1`. Wrong codes are rate limited (5 per minute per address).",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "code",
+                  "device_name"
+                ],
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "example": "ABCD-2345"
+                  },
+                  "device_name": {
+                    "type": "string",
+                    "maxLength": 40
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Paired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Paired"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Wrong or expired code",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many wrong codes"
+          }
+        }
+      }
+    },
+    "/api/v1/ping": {
+      "get": {
+        "operationId": "ping",
+        "tags": [
+          "Connection"
+        ],
+        "security": [],
+        "summary": "Is this a SkyDispatch server, and is my token still accepted?",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ping"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plan": {
+      "get": {
+        "operationId": "plan_get",
+        "summary": "Plan",
+        "tags": [
+          "Flight"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        }
+      }
+    },
+    "/api/v1/plan/import": {
+      "post": {
+        "operationId": "plan_import_post",
+        "summary": "Plan import",
+        "tags": [
+          "Flight"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plan/link": {
+      "get": {
+        "operationId": "plan_link_get",
+        "summary": "Plan link",
+        "tags": [
+          "Flight"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        }
+      }
+    },
+    "/api/v1/plan/refuel": {
+      "post": {
+        "operationId": "plan_refuel_post",
+        "summary": "Plan refuel",
+        "tags": [
+          "Flight"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plan/sync": {
+      "post": {
+        "operationId": "plan_sync_post",
+        "summary": "Plan sync",
+        "tags": [
+          "Flight"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settings": {
+      "get": {
+        "operationId": "get_settings_get",
+        "summary": "Get settings",
+        "tags": [
+          "Settings"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        }
+      },
+      "post": {
+        "operationId": "set_settings_post",
+        "summary": "Set settings",
+        "tags": [
+          "Settings"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "auto_speak_replies": {},
+                  "auto_sync_loadout": {},
+                  "copilot_callouts": {},
+                  "simbrief_user": {},
+                  "units_distance": {},
+                  "units_weight": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/state": {
+      "get": {
+        "operationId": "state_get",
+        "summary": "State",
+        "tags": [
+          "Core"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/State"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/v1/stream": {
+      "get": {
+        "operationId": "stream",
+        "tags": [
+          "Connection"
+        ],
+        "summary": "Server-sent events: live telemetry and updates",
+        "description": "`text/event-stream`. Events: `state` (telemetry, about every 0.45 s), `sim_status`, `ai_status`, `toast`, `thread`, `busy`, `settings`, `career`, `plan`. Optional `v=<8-64 chars [A-Za-z0-9_-]>` names this viewer so speech is only produced while someone is looking at a conversation.",
+        "parameters": [
+          {
+            "name": "v",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Event stream",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "503": {
+            "description": "Too many open streams"
+          }
+        }
+      }
+    },
+    "/api/v1/thread/{tid}": {
+      "get": {
+        "operationId": "thread_get",
+        "summary": "Thread",
+        "tags": [
+          "Messenger"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        },
+        "parameters": [
+          {
+            "name": "tid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "open",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/thread/{tid}/ask_time": {
+      "post": {
+        "operationId": "ask_time_post",
+        "summary": "Ask time",
+        "tags": [
+          "Messenger"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        },
+        "parameters": [
+          {
+            "name": "tid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/thread/{tid}/availability": {
+      "post": {
+        "operationId": "availability_post",
+        "summary": "Availability",
+        "tags": [
+          "Messenger"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        },
+        "parameters": [
+          {
+            "name": "tid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "minutes": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/thread/{tid}/clear": {
+      "post": {
+        "operationId": "clear_post",
+        "summary": "Clear",
+        "tags": [
+          "Messenger"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        },
+        "parameters": [
+          {
+            "name": "tid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/thread/{tid}/send": {
+      "post": {
+        "operationId": "send_post",
+        "summary": "Send",
+        "tags": [
+          "Messenger"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        },
+        "parameters": [
+          {
+            "name": "tid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "text": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/threads": {
+      "get": {
+        "operationId": "threads_get",
+        "summary": "Threads",
+        "tags": [
+          "Messenger"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        }
+      }
+    },
+    "/api/v1/training": {
+      "get": {
+        "operationId": "training_get",
+        "summary": "Training",
+        "tags": [
+          "Training"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        }
+      }
+    },
+    "/api/v1/training/renew": {
+      "post": {
+        "operationId": "training_renew_post",
+        "summary": "Training renew",
+        "tags": [
+          "Training"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "kind": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/training/start": {
+      "post": {
+        "operationId": "training_start_post",
+        "summary": "Training start",
+        "tags": [
+          "Training"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "course_id": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/unpair": {
+      "post": {
+        "operationId": "unpair",
+        "tags": [
+          "Connection"
+        ],
+        "summary": "Remove this phone from the server (its token stops working)",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        }
+      }
+    },
+    "/api/v1/view": {
+      "post": {
+        "operationId": "view_post",
+        "summary": "View",
+        "tags": [
+          "Voice"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "thread": {},
+                  "viewer": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/voice/silence": {
+      "post": {
+        "operationId": "silence_post",
+        "summary": "Silence",
+        "tags": [
+          "Voice"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/voice/start": {
+      "post": {
+        "operationId": "voice_start_post",
+        "summary": "Voice start",
+        "tags": [
+          "Voice"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "target": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/voice/stop": {
+      "post": {
+        "operationId": "voice_stop_post",
+        "summary": "Voice stop",
+        "tags": [
+          "Voice"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "409": {
+            "$ref": "#/components/responses/NoCareer"
+          }
+        },
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "target": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    },
+    "responses": {
+      "Unauthorized": {
+        "description": "Missing, wrong or revoked device token",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "error": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "error"
+              ]
+            }
+          }
+        }
+      },
+      "NoCareer": {
+        "description": "There is no career yet; create one with POST /api/v1/career",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "error": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "error"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Ping": {
+        "type": "object",
+        "required": [
+          "app",
+          "version",
+          "api",
+          "authed"
+        ],
+        "properties": {
+          "app": {
+            "type": "string",
+            "example": "SkyDispatch"
+          },
+          "version": {
+            "type": "string"
+          },
+          "api": {
+            "type": "integer",
+            "example": 1
+          },
+          "authed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Paired": {
+        "type": "object",
+        "required": [
+          "token",
+          "device_id"
+        ],
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "Keep this secret on the phone; send it as the bearer token."
+          },
+          "device_id": {
+            "type": "string"
+          },
+          "app": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "api": {
+            "type": "integer"
+          }
+        }
+      },
+      "State": {
+        "type": "object",
+        "required": [
+          "has_career"
+        ],
+        "properties": {
+          "app": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "has_career": {
+            "type": "boolean"
+          },
+          "pilot": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "rank": {
+                "type": "string"
+              },
+              "balance": {
+                "type": "string"
+              },
+              "callsign": {
+                "type": "string"
+              }
+            }
+          },
+          "sim": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string"
+              },
+              "mode": {
+                "type": "string"
+              }
+            }
+          },
+          "ai_online": {
+            "type": "boolean"
+          },
+          "has_job": {
+            "type": "boolean"
+          },
+          "update": {
+            "type": "object",
+            "nullable": true,
+            "properties": {
+              "version": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "NewCareer": {
+        "type": "object",
+        "required": [
+          "name",
+          "home",
+          "aircraft"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "home": {
+            "type": "string",
+            "description": "ICAO code, e.g. EGLL"
+          },
+          "aircraft": {
+            "type": "string",
+            "enum": [
+              "c152",
+              "c172",
+              "dr40"
+            ]
+          },
+          "callsign": {
+            "type": "string",
+            "maxLength": 8
+          },
+          "experience": {
+            "type": "string",
+            "default": "new",
+            "description": "From GET /career/options"
+          },
+          "difficulty": {
+            "type": "string",
+            "enum": [
+              "relaxed",
+              "normal",
+              "realistic"
+            ],
+            "default": "normal"
+          },
+          "balance": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 5000000
+          },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "$",
+              "£",
+              "€",
+              "¥"
+            ]
+          },
+          "confirm_reset": {
+            "type": "boolean",
+            "description": "Required to replace an existing career"
+          }
+        }
+      }
+    }
+  }
+}

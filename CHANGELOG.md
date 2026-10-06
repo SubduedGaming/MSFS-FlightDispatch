@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased (towards 2.0: Windows server + Android app)
+- New: **phone API v1** (`/api/v1/...`, described in `docs/api/openapi.json`). A phone pairs once with a one-time code
+  (shown as a QR link by the server) and then uses a per-device bearer token. Tokens are stored hashed in
+  `devices.json`, can be revoked per device, and wrong codes are rate limited. The browser remote keeps working.
+- New: `POST /api/v1/career` and `GET /api/v1/career/options` create a career from the phone (no desktop wizard needed).
+- New: **`skydispatch-server`**, a headless server with no window; prints the address and a pairing code.
+- New: optional LAN announcement (`pip install skydispatch[discovery]`) so a phone can find the server.
+- Internal: the backend runs without Qt (`server/engine.py`); the desktop `AppContext` is a thin Qt layer on top of it.
+- CI: macOS dropped from the test matrix (releases are Windows-only); `numpy` added to the test dependencies.
+
 ## 1.4.3
 - Fix: **fuel was not loaded into the sim aircraft** (payload was). MSFS ignores writes to a tank's quantity on some
   aircraft such as the C172, so fuel is now set by tank level, falling back to quantity on the retry.
