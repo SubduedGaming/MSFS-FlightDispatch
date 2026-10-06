@@ -33,6 +33,32 @@ Five wrong codes within a minute lock that address out for a minute.
 - Errors are `{"error": "message"}` with a suitable status. The message is safe to show to the player.
 - Values such as money and distances come preformatted in the player's units.
 
+## Voice on the phone
+Set `speech_output` to `phone` (`POST /api/v1/settings {"speech_output": "phone"}`; the default is `pc`, which plays on the
+PC's speakers as before). The server then speaks through your phone instead.
+
+**Hearing the dispatcher.** The stream sends a `speech` event whenever someone would have spoken (only for the conversation
+the app says it is showing via `POST /api/v1/view`, plus the copilot during a flight):
+```
+event: speech
+data: {"id": "9f2c...", "thread": "general", "text": "Cleared for ...", "voice": "en_GB-alan-medium", "speed": 1.0, "audio": true}
+```
+- `audio: true`: `GET /api/v1/voice/audio/<id>` returns a WAV in that character's voice. Play it with `MediaPlayer` or
+  `AudioTrack`.
+- `audio: false` (the PC has no Piper voice): speak `text` with Android `TextToSpeech`.
+- `speech_stop` (`{"keep": ["general"]}`) means stop anything that is not for those conversations; an empty list stops everything.
+  `POST /api/v1/voice/silence` stops all speech, and starting to record should too.
+
+**Talking to it (hold to talk).** Record with `AudioRecord` (16 kHz, mono, 16-bit), wrap it in a WAV header and
+```
+POST /api/v1/voice/transcribe?send=general
+Content-Type: audio/wav
+<wav bytes, at most 2 MB>
+```
+The reply is `{"text": "...", "sent": true}` and the text is already in the conversation (leave out `send` to only get the
+text). Recognition runs on the PC and can take a few seconds, so show "processing". If the PC has no speech recognition
+(`503`), use Android's `SpeechRecognizer` and post the text to `POST /api/v1/thread/<id>/send` instead.
+
 ## Security
 The connection is plain HTTP. Use it on your home network (or over a VPN). Tokens are random, stored hashed on the PC,
 and revocable; changing nothing else is needed to sign a phone out.

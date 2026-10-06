@@ -12,7 +12,8 @@ from skydispatch.web.api import RemoteApi
 
 SPEC_PATH = Path(__file__).resolve().parent.parent / "docs" / "api" / "openapi.json"
 # Handled by the HTTP layer (web/server.py) rather than RemoteApi.
-HTTP_LAYER = {("get", "/api/v1/ping"), ("post", "/api/v1/pair"), ("post", "/api/v1/unpair"), ("get", "/api/v1/stream")}
+HTTP_LAYER = {("get", "/api/v1/ping"), ("post", "/api/v1/pair"), ("post", "/api/v1/unpair"), ("get", "/api/v1/stream"),
+              ("post", "/api/v1/voice/transcribe"), ("get", "/api/v1/voice/audio/{id}")}
 
 
 @pytest.fixture(scope="module")

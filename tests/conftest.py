@@ -1,4 +1,5 @@
 import dataclasses
+import gc
 import os
 import random
 
@@ -18,6 +19,14 @@ def isolated_home(tmp_path, monkeypatch):
     # never pick up a real MSFS install on the machine running the tests
     monkeypatch.setattr("skydispatch.sim.installed.default_roots", lambda: [])
     monkeypatch.setattr("skydispatch.sim.installed.userconfig_candidates", lambda: [])
+
+
+@pytest.fixture(autouse=True)
+def collect_garbage_on_the_main_thread():
+    """Qt objects (the app context and its timers) sit in reference cycles. If Python's cyclic collector happens to run on
+    another thread (an HTTP client thread in the web tests) it destroys them there, which segfaults. Collect here."""
+    yield
+    gc.collect()
 
 
 @pytest.fixture

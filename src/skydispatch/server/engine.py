@@ -44,7 +44,9 @@ from .. import __version__, updater
 from ..voice import tts as tts_mod
 from ..voice.characters import voices_in_use
 from ..voice.service import VoiceService
+from ..voice.text import speakable
 from .discovery import Advertiser
+from .speech import SpeechStore, Utterance
 from .pairing import PairingManager, format_code, lan_addresses, pair_uri
 
 log = logging.getLogger(__name__)
@@ -56,7 +58,8 @@ CURRENCIES = ("$", "£", "€", "¥")
 class Engine:
     # Signal names, as on the desktop context (a subclass may declare real Qt signals of the same names instead).
     EVENTS = ("sim_state", "sim_status", "career_event", "thread_changed", "chat_busy", "ai_status", "toast",
-              "listening", "settings_changed", "update_available", "plan_changed", "loadout_report")
+              "listening", "settings_changed", "update_available", "plan_changed", "loadout_report", "speech",
+              "speech_stop")
 
     def __init__(self, settings: Settings, db: Database, main=None):
         self.settings = settings
@@ -76,6 +79,7 @@ class Engine:
         self.web = None                       # web.server.WebRemote, created on first start_web()
         self.web_error = ""
         self.advertiser = Advertiser()
+        self.speech_store = SpeechStore()     # utterances a phone can fetch the audio for
         self.pairing = PairingManager()      # phones paired with this server (devices.json)
         self.update_info: updater.UpdateInfo | None = None
         self.ofp: simbrief.Ofp | None = None
@@ -289,14 +293,51 @@ class Engine:
             self.viewing[viewer] = thread
         else:
             self.viewing.pop(viewer, None)
-        self.voice.drop_unless(self._audible_tags())
+        self.silence(self._audible_tags())
 
     def speak(self, text: str, thread: str, voice: str = "", speed: float | None = None) -> None:
-        """Speak `text` as whoever owns `thread`, if speech is on and that conversation is being looked at."""
+        """Speak `text` as whoever owns `thread`, if speech is on and that conversation is being looked at.
+        Where it is heard depends on ``voice.output``: this PC's speakers, or the phone (a ``speech`` event)."""
         if self.closed or not self.settings.voice.auto_speak_replies or not self.audible(thread):
             return
         who = get_copilot(self.settings.ai.copilot) if thread == "copilot" else self.dispatcher.persona_for(thread)
-        self.voice.say(text, voice or who.piper_voice, tag=thread, speed=who.rate if speed is None else speed)
+        voice = voice or who.piper_voice
+        speed = who.rate if speed is None else speed
+        if self.settings.voice.output == "phone":
+            self._speak_on_phone(text, thread, voice, speed)
+        else:
+            self.voice.say(text, voice, tag=thread, speed=speed)
+
+    def _speak_on_phone(self, text: str, thread: str, voice: str, speed: float) -> None:
+        clean = speakable(text)
+        if not clean:
+            return
+        utt = self.speech_store.add(thread, clean, voice, speed)
+        self.speech.emit({"id": utt.id, "thread": thread, "text": clean, "voice": voice, "speed": speed,
+                          "audio": self.voice.tts.can_synthesize(voice)})
+
+    def render_utterance(self, utt: Utterance) -> bytes | None:
+        """The WAV for an utterance (made once, then kept), or None when this PC cannot render audio. Slow: call it
+        from a request thread, never from the engine thread."""
+        with utt.lock:
+            if utt.wav is None:
+                utt.wav = self.voice.tts.synthesize(utt.text, utt.voice, utt.speed)
+            return utt.wav
+
+    def silence(self, keep: set[str] | None = None) -> None:
+        """Stop speech. With `keep`, only speech that belongs to other conversations stops. Reaches the phone too."""
+        if keep is None:
+            self.voice.shut_up()
+        else:
+            self.voice.drop_unless(keep)
+        self.speech_stop.emit({"keep": sorted(keep or ())})
+
+    def submit_player_text(self, text: str, thread: str) -> None:
+        """What the player said or typed into a conversation (the copilot has its own entry)."""
+        if thread == "copilot":
+            self.ask_copilot(text=text)
+        else:
+            self.ask(text, thread)
 
     # ------------------------------------------------- flight plan and loadout
     def _job_context(self):

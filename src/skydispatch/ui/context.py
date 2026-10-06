@@ -26,6 +26,8 @@ class AppContext(Engine, QObject):
     update_available = Signal(object)     # updater.UpdateInfo
     plan_changed = Signal()               # SimBrief plan imported or the sim aircraft was loaded
     loadout_report = Signal(str)          # the result of "Check sim loadout"
+    speech = Signal(object)               # an utterance for the phone to speak (voice.output = "phone")
+    speech_stop = Signal(object)          # stop speech: {"keep": [threads still being looked at]}
 
     def __init__(self, settings: Settings, db: Database):
         QObject.__init__(self)

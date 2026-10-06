@@ -1266,7 +1266,15 @@
                   "copilot_callouts": {},
                   "simbrief_user": {},
                   "units_distance": {},
-                  "units_weight": {}
+                  "units_weight": {},
+                  "speech_output": {
+                    "type": "string",
+                    "enum": [
+                      "pc",
+                      "phone"
+                    ],
+                    "description": "Where speech is heard: the PC's speakers, or this phone (see the `speech` event)"
+                  }
                 }
               }
             }
@@ -1305,7 +1313,7 @@
           "Connection"
         ],
         "summary": "Server-sent events: live telemetry and updates",
-        "description": "`text/event-stream`. Events: `state` (telemetry, about every 0.45 s), `sim_status`, `ai_status`, `toast`, `thread`, `busy`, `settings`, `career`, `plan`. Optional `v=<8-64 chars [A-Za-z0-9_-]>` names this viewer so speech is only produced while someone is looking at a conversation.",
+        "description": "`text/event-stream`. Events: `state` (telemetry, about every 0.45 s), `sim_status`, `ai_status`, `toast`, `thread`, `busy`, `settings`, `career`, `plan`. Optional `v=<8-64 chars [A-Za-z0-9_-]>` names this viewer so speech is only produced while someone is looking at a conversation. When `speech_output` is `phone` the stream also carries `speech` (`{id, thread, text, voice, speed, audio}`: say `text`; if `audio` is true fetch `GET /voice/audio/{id}` and play it, otherwise use the phone's own voice) and `speech_stop` (`{keep: [threads]}`: stop speech for any other conversation; an empty list stops everything).",
         "parameters": [
           {
             "name": "v",
@@ -1697,6 +1705,78 @@
         }
       }
     },
+    "/api/v1/voice/audio/{id}": {
+      "get": {
+        "operationId": "voice_audio",
+        "tags": [
+          "Voice"
+        ],
+        "summary": "The spoken audio for a `speech` event",
+        "description": "Rendered on first request (can take a moment) and then kept for ten minutes.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "WAV audio",
+            "content": {
+              "audio/wav": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Unknown or expired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "This PC cannot make audio for that voice; speak the event's `text` with the phone's own voice",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/voice/silence": {
       "post": {
         "operationId": "silence_post",
@@ -1787,6 +1867,137 @@
                 "type": "object",
                 "properties": {
                   "target": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/voice/transcribe": {
+      "post": {
+        "operationId": "voice_transcribe",
+        "tags": [
+          "Voice"
+        ],
+        "summary": "Turn a recording of the player's voice into text",
+        "description": "Body: a PCM16 `.wav` (mono or stereo, 8-96 kHz; 16 kHz mono is ideal), at most 2 MB. With `send` the text is also said in that conversation, as if typed. Recognition runs on the PC and can take a few seconds.",
+        "parameters": [
+          {
+            "name": "send",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "`general`, `copilot` or `employer:<id>`"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "audio/wav": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Recognised",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "text",
+                    "sent"
+                  ],
+                  "properties": {
+                    "text": {
+                      "type": "string"
+                    },
+                    "sent": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a usable .wav, or an unknown conversation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "413": {
+            "description": "Recording too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Nothing was heard",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Speech recognition is not installed or is switched off on the PC; use the phone's own recogniser and post the text to /thread/{tid}/send",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
                 }
               }
             }

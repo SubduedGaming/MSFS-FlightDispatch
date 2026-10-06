@@ -7,6 +7,10 @@
 - New: `POST /api/v1/career` and `GET /api/v1/career/options` create a career from the phone (no desktop wizard needed).
 - New: **`skydispatch-server`**, a headless server with no window; prints the address and a pairing code.
 - New: optional LAN announcement (`pip install skydispatch[discovery]`) so a phone can find the server.
+- New: **voice on the phone**. Set `speech_output` to `phone` and the server sends `speech` events plus downloadable audio
+  (`GET /api/v1/voice/audio/<id>`, the characters' own Piper voices) instead of playing on the PC;
+  `POST /api/v1/voice/transcribe` turns a recording from the phone into text (and can send it into a conversation).
+  The default stays `pc`. See `docs/API.md`.
 - Internal: the backend runs without Qt (`server/engine.py`); the desktop `AppContext` is a thin Qt layer on top of it.
 - CI: macOS dropped from the test matrix (releases are Windows-only); `numpy` added to the test dependencies.
 
