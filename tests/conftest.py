@@ -21,10 +21,20 @@ def isolated_home(tmp_path, monkeypatch):
     monkeypatch.setattr("skydispatch.sim.installed.userconfig_candidates", lambda: [])
 
 
+@pytest.fixture(scope="session", autouse=True)
+def no_automatic_garbage_collection():
+    """Qt objects (the app context, its timers, the main-thread poster) sit in reference cycles. Python's automatic cyclic
+    collector can run on whichever thread happens to allocate, for example an HTTP client thread in the web tests, and
+    destroying a QObject there crashes or hangs. So collect only when we say so, on the main thread."""
+    was_enabled = gc.isenabled()
+    gc.disable()
+    yield
+    if was_enabled:
+        gc.enable()
+
+
 @pytest.fixture(autouse=True)
 def collect_garbage_on_the_main_thread():
-    """Qt objects (the app context and its timers) sit in reference cycles. If Python's cyclic collector happens to run on
-    another thread (an HTTP client thread in the web tests) it destroys them there, which segfaults. Collect here."""
     yield
     gc.collect()
 
