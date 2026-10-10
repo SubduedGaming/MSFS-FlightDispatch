@@ -29,14 +29,17 @@ Five wrong codes within a minute lock that address out for a minute.
   your token is still accepted.
 - `GET /api/v1/state` tells you whether a career exists. If `has_career` is false, call `GET /api/v1/career/options`
   and then `POST /api/v1/career`. Other routes answer `409` until a career exists.
-- `GET /api/v1/stream` is a Server-Sent Events stream (`state`, `sim_status`, `ai_status`, `toast`, `thread`, `busy`,
-  `settings`, `career`, `plan`). Re-read the affected screen when an event arrives; reconnect after a drop and refetch.
+- `GET /api/v1/stream?v=<viewer id>` is a Server-Sent Events stream (`state`, `sim_status`, `ai_status`, `toast`,
+  `thread`, `busy`, `settings`, `career`, `plan`, and `speech` / `speech_stop` when speech is on the phone). The server
+  sends a keep-alive comment every 15 seconds. Re-read the affected screen when an event arrives; reconnect after a drop
+  and refetch. `toast` carries `{level, message}`. The viewer id (8-64 letters, digits, `_` or `-`) is the same one you
+  send to `POST /api/v1/view`.
 - Errors are `{"error": "message"}` with a suitable status. The message is safe to show to the player.
 - Values such as money and distances come preformatted in the player's units.
 
 ## Voice on the phone
-Set `speech_output` to `phone` (`POST /api/v1/settings {"speech_output": "phone"}`; the default is `pc`, which plays on the
-PC's speakers as before). The server then speaks through your phone instead.
+`speech_output` is `phone` by default (`POST /api/v1/settings {"speech_output": "pc"}` plays on the PC's speakers
+instead). With `phone`, the server speaks through your phone.
 
 **Hearing the dispatcher.** The stream sends a `speech` event whenever someone would have spoken (only for the conversation
 the app says it is showing via `POST /api/v1/view`, plus the copilot during a flight):

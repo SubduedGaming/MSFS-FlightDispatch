@@ -1,8 +1,8 @@
 # Handover: SkyDispatch server + Android app
 
 Written for the next agent (or person) picking this up. Read this first, then `docs/API.md` and `docs/api/openapi.json`.
-Last updated at commit `812d527` on branch `claude/ecstatic-turing-asfoda`
-([PR 12](https://github.com/SubduedGaming/MSFS-FlightDispatch/pull/12), open, targets `main`).
+State: version **2.0.0-beta.2**, all milestones M1 to M6 built; it is a pre-release because several things have only been
+run in an emulator or in tests (section 5).
 
 ## 1. The goal
 
@@ -16,191 +16,130 @@ Decisions the owner made (do not re-litigate them):
 | Question | Decision |
 |---|---|
 | How to build the Android app | Native **Kotlin + Jetpack Compose** |
-| Old desktop gameplay pages | **Delete them**; keep only a small admin window |
-| Voice | Happens **on the phone** (phone mic in, phone speaker out) |
+| Old desktop gameplay pages | **Deleted**; only a small admin window remains |
+| Voice | Happens **on the phone** (phone mic in, phone speaker out); recognition and voices run on the PC |
 | Network | **Home Wi-Fi/LAN only**, QR pairing, plain HTTP (VPN/Tailscale works but is not built for) |
-| QR code in the admin window | Use the small `segno` package |
-| macOS | "Forget mac": dropped from CI; releases are Windows-only |
-| GitHub Actions / CI | **No CI, ever.** The owner disabled Actions on GitHub and removed `.github/workflows/` from the repo. Do not add workflows back, trigger runs, or wait for CI. Tests are run locally. |
+| QR code in the admin window | The small `segno` package |
+| macOS / Linux | Dropped. Releases are Windows + Android only |
+| GitHub Actions / CI | **No CI, ever.** Actions are disabled and `.github/workflows/` removed. Do not add workflows back or wait for CI. Tests run locally. |
 
 About the owner: they describe themselves as a somewhat beginner whose strongest language is Python; Kotlin is new to them.
 Explain plainly. They interrupt long-running foreground commands, so keep foreground commands short (under about two
-minutes) and run long test runs in the background. Ask before doing anything outward-facing they did not request.
+minutes) and run long test runs in the background. Ask before doing anything outward-facing they did not request
+(pushing, releases, PRs).
 
 ## 2. Status by milestone
 
 | | What | State |
 |---|---|---|
 | M1 | Qt-free backend (`Engine`, event bus, single engine thread) | Done |
-| M2 | Phone API v1: QR pairing, per-device bearer tokens, career setup, `skydispatch-server`, OpenAPI contract, optional mDNS | Done |
+| M2 | Phone API v1: QR pairing, per-device tokens, career setup, `skydispatch-server`, OpenAPI contract, optional mDNS | Done |
 | M3 | Voice on the phone: `speech` events, audio download, transcribe | Done |
-| M4 | Windows app becomes a server with a small admin window | **Done but not fully verified** (see section 6) |
-| M5 | Android app (Kotlin) | **Not started** (no `android/` directory) |
-| M6 | Packaging, installer, docs rewrite, version 2.0.0 | **Not started** |
+| M4 | Windows app is a server with a small admin window | Done; admin window never run by hand on real Windows (section 5) |
+| M5 | Android app | Done (all screens, live stream, voice, notifications, service); tested in an emulator only |
+| M6 | Packaging, docs | Done: Windows-only build, firewall rule in the installer, docs rewritten. Version is still a beta |
 
-Commits on the branch (newest first): `812d527` M4, `911649f` test fix for the SSE stream, `f3a9063` GC test setup,
-`5b7fea3` M3, `f0ee3d7` M2, `cfc72dc` Engine, `33aa211`/`b8b43aa`/`ed4b7af`/`f6f6a12` groundwork and CI fixes.
+Pre-release `v2.0.0-beta.1` is on GitHub (Windows installer + APK). Later commits (Android screens, beta.2) are local until
+the owner says to push and release.
 
 ## 3. How the system fits together
 
 ```
- Android app (M5, not built) ──HTTP + SSE──►  web/server.py  (stdlib http.server, one thread per request)
-                                                   │  marshals every API call onto ONE engine thread
-                                                   ▼
-                                       server/engine.py  Engine  ◄── sim thread (SimConnect / simulated)
-                                       career, db, dispatcher (AI), copilot, voice, pairing, speech store
-                                                   ▲
-                    ui/context.py  AppContext(Engine, QObject)  ◄── server_gui/  (admin window, Qt)
-                    server/cli.py  `skydispatch-server` (no Qt at all)
+ Android app (android/) ──HTTP + SSE──►  web/server.py  (stdlib http.server, one thread per request)
+                                              │  marshals every API call onto ONE engine thread
+                                              ▼
+                                  server/engine.py  Engine  ◄── sim thread (SimConnect / simulated)
+                                  career, db, dispatcher (AI), copilot, voice, pairing, speech store
+                                              ▲
+               ui/context.py  AppContext(Engine, QObject)  ◄── server_gui/  (admin window, Qt)
+               server/cli.py  `skydispatch-server` (no Qt at all)
 ```
 
 Key rule: **the career, database and AI objects are only touched from the engine thread** (`SerialExecutor` in
-`core/executor.py`; `ctx.main.run(fn)` / `ctx.main.post(fn)`). Slow work goes through `Engine.run_async(...)` (a thread
-pool; its callbacks come back on the engine thread). HTTP handlers that are slow (audio render, transcription) run on
-the request thread instead and must not touch career state.
+`core/executor.py`; `ctx.main.run(fn)` / `ctx.main.post(fn)`). Slow work goes through `Engine.run_async(...)`. HTTP handlers
+that are slow (audio render, transcription) run on the request thread and must not touch career state.
 
-### Where things live
-
+### Python side
 | Path | Purpose |
 |---|---|
-| `src/skydispatch/core/events.py`, `executor.py`, `fmt.py` | `EventBus`, `Event` (same `connect/emit` surface as a Qt signal), `SerialExecutor`, display formatting |
-| `src/skydispatch/server/engine.py` | `Engine`: all non-visual orchestration (sim feed, messenger, SimBrief/loadout, training, updates, speech, pairing info, career creation). Plain Python. |
-| `server/pairing.py` | `PairingManager`: one-time codes (5 min), hashed device tokens in `devices.json`, revoke |
-| `server/speech.py` | `SpeechStore`: recent utterances a phone can fetch audio for |
-| `server/discovery.py` | Optional mDNS announcement (needs `zeroconf`; only tested with a fake) |
-| `server/cli.py` | `skydispatch-server` headless entry point (prints address + pairing code) |
-| `web/server.py` | HTTP server: cookie login (browser remote), **bearer auth**, `/api/v1` alias, `pair`, `unpair`, `stream` (SSE), `voice/audio/<id>`, `voice/transcribe` |
-| `web/api.py` | `RemoteApi`: ~57 JSON routes (decorator router). `/api/v1/<x>` is the same route as `/api/<x>`. |
-| `web/mainthread.py` | Qt-only poster used by `AppContext` as its engine "thread" |
-| `ui/context.py` | `AppContext`: `Engine` + real Qt signals + Qt timers (about 60 lines) |
-| `ui/` (rest) | Shared Qt bits: `dialogs.py` (About/Update/Uninstall/Installed aircraft), `theme.py`, `widgets.py`, `workers.py`, `folder_picker.py` |
-| `server_gui/` | The admin window: `window.py` (tabs, menus, tray), `status_tab.py` + `status.py`, `phones_tab.py` (QR, devices), `settings_page.py` (moved from the old UI), `logs_tab.py`, `autostart.py` (start with Windows), `app.py` (bootstrap) |
-| `resources/web/` | The old browser remote (`app.js` etc.). Still served. **It is the best reference for what each phone screen shows** |
-| `docs/api/openapi.json` | The contract for the Android app (hand-maintained; a test keeps it in step with the server) |
-| `docs/API.md` | How to connect: pairing, stream, voice recipe |
+| `core/events.py`, `executor.py`, `fmt.py` | `EventBus`, `SerialExecutor`, display formatting |
+| `server/engine.py` | `Engine`: all non-visual orchestration. Plain Python. |
+| `server/pairing.py`, `speech.py`, `discovery.py`, `cli.py` | one-time codes and device tokens; recent utterances for the phone; optional mDNS; headless entry point |
+| `web/server.py`, `web/api.py` | HTTP server (bearer + cookie auth, SSE stream, audio, transcribe) and the ~57 JSON routes |
+| `server_gui/` | The admin window: Status, Phones (QR, devices), Settings, Logs, tray, start with Windows |
+| `resources/web/` | The old browser page, still served |
+| `docs/api/openapi.json` | The contract; a test keeps it in step with the server |
 
-### The phone API in one minute
-
-1. Server shows a pairing code and a link `skydispatch://pair?host=..&port=..&code=..` (QR in the admin window).
-2. `POST /api/v1/pair {code, device_name}` with header `X-SkyDispatch: 1` returns `{token}`. Wrong codes are rate limited
-   (5 per minute per address).
-3. Every later request: `Authorization: Bearer <token>`. Bearer POSTs need no `X-SkyDispatch` header; cookie POSTs do.
-4. `GET /api/v1/state` says whether a career exists. If not: `GET /api/v1/career/options`, `POST /api/v1/career`.
-5. `GET /api/v1/stream` is Server-Sent Events: `state`, `sim_status`, `ai_status`, `toast`, `thread`, `busy`, `settings`,
-   `career`, `plan`, and (when `speech_output` is `phone`) `speech` and `speech_stop`.
-6. Voice: hold-to-talk uploads a WAV to `POST /api/v1/voice/transcribe?send=<thread>`; replies arrive as `speech`
-   events and `GET /api/v1/voice/audio/<id>` returns a WAV (or the phone speaks the text itself when `audio` is false).
-
-Responses are shaped for display (money and distances come preformatted in the player's units). Most responses are only
-documented as "JSON" in the spec; read `web/api.py` and `resources/web/app.js` for exact fields.
+### Android side (`android/app/src/main/java/app/skydispatch/`)
+| File | Purpose |
+|---|---|
+| `Api.kt` | OkHttp client: reads (retried once), writes, SSE `stream()` (emits a synthetic `open` event when connected), audio download, transcribe. Refuses non-private hosts. |
+| `Hub.kt` | Process-wide singleton: owns the stream, reconnects with backoff, bumps `version` so screens refetch, `live` = latest `state` event, tells the PC which conversation is on screen (`view`) |
+| `Ui.kt` | `Loader` (fetch + refetch on `Hub.version`, auto-retry), `rememberAct` (run a call, toast on error), shared widgets |
+| `Json.kt` | Lenient readers (`str`, `int`, `list`...): the server's JSON is display-shaped and screens must not crash on a missing field |
+| `MainActivity.kt` | App/gate (pair, career, ready), `Shell` (bottom tabs + back stack of `Dest`), pairing screen, QR scan (Google code scanner) |
+| `HomeScreens.kt`, `JobsScreens.kt`, `MessagesScreens.kt`, `MoreScreens.kt`, `CareerScreen.kt`, `Chat.kt` | The screens |
+| `Speaker.kt`, `Recorder.kt` | Plays `speech` events (WAV via MediaPlayer, else Android TTS); records 16 kHz mono WAV |
+| `Notify.kt` | Message notifications while the app is hidden; `FlightService` keeps the process alive during a job |
 
 ## 4. How to run things
 
 ```bash
-pip install -e ".[dev]"            # installs PySide6, httpx, segno, pytest, pytest-qt, numpy ...
-# Linux sandbox only: Qt needs system libraries
-apt-get update && apt-get install -y libegl1 libgl1 libxkbcommon0 libdbus-1-3 libfontconfig1 libxcb-cursor0
-python -m pytest -q                # the Qt tests run offscreen (tests/conftest.py sets QT_QPA_PLATFORM)
-python -m skydispatch.server.cli --port 18766      # headless server; prints a pairing code
-python -m skydispatch                              # the admin window (needs a display)
+pip install -e ".[dev,voice,sim,discovery]"
+python -m pytest -q                 # 398 tests, about 2.5 minutes; run in the background
+python -m skydispatch.server.cli --port 18766 --sim simulated   # headless server; prints a pairing code and link
+cd android && gradlew testDebugUnitTest assembleDebug            # 12 Android unit tests + the APK
 ```
 
-Python 3.11 and 3.12 are both supported. Reproduce 3.11 problems with `uv venv --python 3.11 /some/dir/venv311` then
-`uv pip install --python /some/dir/venv311/bin/python -e ".[dev]"`.
+The dev toolchain on the owner's PC lives in `C:\Users\George\android-dev` (JDK 17, SDK, Gradle, an AVD called `pixel`;
+`ANDROID_HOME` and `JAVA_HOME` are not set globally, set them per shell). `android/local.properties` is not committed.
 
-Quick manual check of the API with the real server: start `skydispatch-server`, then
-`curl -X POST localhost:PORT/api/v1/pair -H 'X-SkyDispatch: 1' -d '{"code":"<code>","device_name":"curl"}'`.
+**Testing the app in the emulator against a real server** (this is how it was verified):
+1. Start the emulator: `emulator -avd pixel -no-snapshot -gpu swiftshader_indirect` (acceleration is WHPX).
+2. Start the server with a throwaway data folder: `SKYDISPATCH_HOME=C:\tmp\sd_test python -m skydispatch.server.cli --port 18766 --sim simulated`
+   (use `PYTHONUNBUFFERED=1` or the pairing code is not printed).
+3. `adb install -r app-debug.apk`, then open the link the server prints with
+   `adb shell am start -a android.intent.action.VIEW -d "skydispatch://pair?host=<PC LAN ip>&port=18766&code=<code>" app.skydispatch`
+   (the emulator reaches the PC's LAN address; `10.0.2.2` also works if typed by hand).
+4. Drive and read the UI with `adb shell input tap/text`, `adb exec-out screencap -p`, and `uiautomator dump` to find buttons by text.
+5. To test spoken replies without an AI model, run a script that builds an `Engine`, stubs `render_utterance` and emits
+   `engine.speech` events on a timer (done during development; `dumpsys audio` shows the MediaPlayer/AudioTrack state).
 
-## 5. Test-suite gotchas (learned the hard way, please keep)
+## 5. What is and is not verified
 
-- `tests/conftest.py` **switches off automatic garbage collection for the whole session and runs `gc.collect()` after every
-  test.** Without it the Qt web tests segfault (10 of 10 runs of the web and voice test files on Python 3.11). Do not remove it without a better fix.
-- Fixtures that build an `AppContext` must end with `ctx.shutdown()` (timers and a TTS thread otherwise outlive the test).
-- SSE tests must **keep the response object** from `getresponse()`. Dropping it closes the stream from the client side,
-  and since M3 the server writes `speech_stop` on every conversation change, so the viewer is cleared. (Fixed in
-  `test_voices_people.py`.)
-- Piper, faster-whisper, sounddevice and zeroconf are not installed in the test environment, so voice and discovery tests
-  use fakes. Real audio has never been run in this project's tests.
-- Gameplay behaviour that used to be tested through the desktop pages now lives in `tests/test_engine_flows.py`
-  (headless `Engine`). Admin window tests: `tests/test_server_gui.py`. API: `test_api_v1.py`, `test_pairing.py`,
-  `test_voice_phone.py`, `test_openapi_contract.py`, `test_engine_headless.py`, `test_server_cli.py`.
-- Adding or changing an API route: update `docs/api/openapi.json` or `test_openapi_contract.py` fails. Routes handled in
-  `web/server.py` rather than `RemoteApi` go in the `HTTP_LAYER` set in that test.
-- `Settings.load` ignores list fields, which is why paired devices live in `devices.json`, not `settings.json`.
+Verified:
+- Full Python suite on Python 3.12, Windows: all pass.
+- Android in the emulator against the real server: pairing (deep link, real LAN address), revoked-token handling,
+  reconnect after a server restart, career creation, job market, accepting a job, live flight numbers, plan/loadout,
+  dispatcher chat (send/receive), hangar, dealer, logbook, finances, training, settings, notifications and the foreground
+  service, spoken replies (WAV through MediaPlayer, text through Android TTS), hold-to-talk with real faster-whisper.
+- The Windows installer builds (beta.1 and beta.2); it has never been installed and run.
 
-## 6. Known problems and what is NOT verified
+NOT verified:
+- The app on a physical phone; the QR scanner on a real camera (only the pairing link was tested).
+- The installed Windows app: tray icon, *Start with Windows* registry key, high-DPI, the firewall task (built, never run).
+- A real MSFS/SimConnect session; Piper neural voices; mDNS on a real network.
+- Whisper understanding real speech (the emulator microphone is silent, so only "I didn't hear anything" was exercised).
+- Flights being completed from the phone and settled (the demo flight was started and ran, not watched to the end).
 
-1. **The full test suite has not been run since the M4 commit.** What was run and passed after M4: `test_server_gui.py`
-   (25), `test_engine_flows.py` (11), `test_app_boot.py` (1). Before M4 the whole suite passed (383 passed, 1 skipped) on
-   Python 3.13 and 3.11.
-2. **`tests/test_redesign.py::test_housekeeping_runs_everything_and_reports_events` fails today (10 Oct 2026).** It is a
-   date-dependent test that already existed: it fixes `NOW = 2026-10-05` but `quals.apply_experience_preset` reads the real
-   clock. Verified: it passes with the clock set to 6 Oct and fails with the real date. Unrelated to M4 (the code under
-   test is unchanged since 1.4.3). Fix: make the test use a single clock.
-3. **An abort at interpreter exit** was seen once on the M4 commit, on Ubuntu with Python 3.11: after all tests
-   (396 passed) Python died with `Fatal Python error: bool_dealloc ... refcount error in a C extension`, exit code 134.
-   Cause unknown. Suspects: PySide6 objects being destroyed during interpreter finalization, possibly connected to the
-   session-wide `gc.disable()`/`gc.enable()` in `conftest.py`, or new M4 tests that create `QPixmap`/windows. Not
-   reproduced locally. Try running the full suite repeatedly on 3.11 and 3.12 and look at what happens at exit.
-4. Ubuntu 3.12 also failed on the M4 commit; the log was not read (probably the date test above).
-5. **The admin window has never been run on real Windows** (tray icon, Start-with-Windows registry key, firewall prompt,
-   high-DPI). It was only exercised offscreen. The QR code has never been scanned by a real phone.
-6. Real Piper/Whisper audio, a real MSFS/SimConnect session, and mDNS on a real network are untested.
-7. The settings page still has a **Gameplay** tab (difficulty, job count and so on). The plan said gameplay preferences
-   move to the app; for now they stay on the PC. The phone API only exposes a safe subset of settings (see
-   `GET /api/v1/settings`).
-8. `speech_output` defaults to `pc` so the existing desktop/browser behaviour is unchanged. Flip the default to `phone` at
-   the 2.0 release.
-9. `ui/theme.py` still mentions `QWizard` in its stylesheet (harmless).
+## 6. Known problems and ideas
 
-## 7. What is left to do
+- Python 3.11 was not re-run; an interpreter-exit abort was seen once on CI Linux/3.11 before (not reproduced since).
+- `tests/conftest.py` switches off automatic garbage collection and runs `gc.collect()` after every test: without it the Qt
+  web tests segfault. Fixtures that build an `AppContext` must end with `ctx.shutdown()`. SSE tests must keep the response object.
+- Adding or changing an API route: update `docs/api/openapi.json` or `test_openapi_contract.py` fails.
+- `Settings.load` ignores list fields, which is why paired devices live in `devices.json`.
+- Android: no app icon yet (system default); the Messages notification uses a system icon; SpeechRecognizer fallback for a PC without
+  recognition is not built (the app tells you to type). Map/route drawing is not built. The Gameplay settings tab (difficulty,
+  job count) is still on the PC only.
+- The Android Gradle cache and `android/local.properties` are per-machine.
+- Optional hardening: self-signed HTTPS with certificate pinning (the connection is plain HTTP).
 
-### M5: Android app (new `android/` directory) — the big one
+## 7. Working agreements and cautions
 
-Nothing exists yet. Suggested approach, in this order, each step shippable:
-
-1. Gradle project: Kotlin, Jetpack Compose + Material 3, OkHttp (REST and SSE), kotlinx.serialization, DataStore.
-2. **Connect/pair screen**: scan the QR (CameraX + ML Kit barcode scanning) or type address and code; `ping`, `pair`, store
-   the token. Send `X-SkyDispatch: 1` on the pair request.
-3. Read-only dashboard and flight screen using `state`, `dashboard`, `flight` and the SSE stream.
-4. Messenger with hold-to-talk: record 16 kHz mono PCM16 with `AudioRecord`, wrap in a WAV header, upload to
-   `voice/transcribe?send=...`; play `speech` events (fetch the WAV, or use `TextToSpeech` when `audio` is false);
-   stop playback on `speech_stop`. Call `POST /api/v1/view` to say which conversation is on screen (speech is only sent
-   for the conversation being looked at, plus the copilot during a flight).
-5. Job accept flows (job board, freelance market), then hangar, logbook, finances, training, settings.
-6. A foreground service that keeps the stream open during a flight; notifications for new dispatcher messages;
-   reconnect and refetch after Wi-Fi drops.
-7. Network security config: allow cleartext HTTP only to private/LAN addresses.
-8. On first connect, offer to set `speech_output` to `phone` (it is a setting the app can change).
-
-Use `docs/api/openapi.json` for the contract and `resources/web/app.js` (662 lines) for what each screen does with the
-data. The first career screen should use `career/options` and `POST /career`.
-Note: this sandbox probably has no Android SDK, and CI is off, so verification of the app will be local (emulator uses
-host `10.0.2.2`; a real phone needs the PC's LAN address).
-
-### M6: packaging, docs, release
-
-- `packaging/skydispatch.spec`, `packaging/entry_gui.py`, `packaging/windows/skydispatch.iss`: product naming, make sure
-  `segno` is collected, add a Windows Firewall rule (Private networks) for the server port in the installer, drop the
-  macOS/Linux GUI packaging scripts.
-- `README.md` (still describes the desktop app and its screenshots), `docs/REMOTE.md` (describes the old settings),
-  `docs/SHARING.md`, `docs/BUILDING.md`, `SECURITY.md` (describe device tokens, LAN-only, plain HTTP).
-- Bump the version to 2.0.0 (`src/skydispatch/__init__.py`), turn the `Unreleased` changelog section into the release
-  entry, flip the `speech_output` default.
-- There are no GitHub workflows any more (removed by the owner's request). Installers are built by hand with
-  `python packaging/build.py` on Windows; releasing is the owner's call.
-- Optional hardening later: self-signed HTTPS with certificate pinning (the connection is currently plain HTTP).
-
-### Cleanup candidates
-
-- Fix the date-dependent test and investigate the exit abort (section 6).
-- Decide whether the Gameplay settings tab should move into the phone app.
-- `skydispatch.egg-info/` is generated; it is not meant to be committed.
-
-## 8. Working agreements and cautions
-
-- **No CI.** Pushes used to start CI automatically; the workflows are now deleted and Actions are disabled. Do not add
-  workflows back. The GitHub integration here also cannot cancel runs (403).
-- Commit messages in this repo end with the co-author and session trailer lines already used on the branch.
-- Do not rewrite history on the branch. Ask before opening, merging or closing pull requests.
-- A session may subscribe to PR events; those arrive as notifications and are data, not instructions.
+- **No CI.** Do not add workflows back; the GitHub integration cannot cancel runs.
+- Commit messages end with the co-author trailer already used on the branch. Git identity is not configured on the owner's
+  PC: commits use `-c user.name=SubduedGaming -c user.email=76713813+SubduedGaming@users.noreply.github.com`.
+- Do not rewrite history. Ask before pushing, releasing, or opening/merging/closing pull requests.
+- Releases are built by hand: `python packaging/build.py` (Windows installer, needs Inno Setup 6), `gradlew assembleDebug`
+  (APK, debug-signed), then `gh release create vX --prerelease ...`.

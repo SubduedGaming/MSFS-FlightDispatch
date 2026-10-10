@@ -1,6 +1,23 @@
 # Changelog
 
-## Unreleased (towards 2.0: Windows server + Android app)
+## 2.0.0-beta.2 (pre-release)
+- New: **the Android app** (`android/`, Kotlin + Jetpack Compose). Pair by QR code or by typing the address and code, create
+  your pilot, then play: Home (dashboard), Flight (live numbers, plan and loadout, end flight, abandon, copilot chat),
+  Jobs (freelance market, companies, apply, resign), Messages (dispatcher chat, offers, availability), Hangar and dealer,
+  Logbook, Finances, Training and licences, Settings. A foreground service keeps the connection open while a job is
+  active, and new dispatcher messages arrive as notifications. The app only connects to home-network addresses.
+- New: **voice on the phone, in the app**: hold the mic button to talk (recognised on the PC), replies are played through
+  the phone (the PC's own voice, or Android's text-to-speech when the PC has no voice for that character).
+- Changed: **replies are spoken on the phone by default** (`speech_output` is now `phone`; set `pc` to hear them on the PC).
+- Changed: the Windows installer can add a Windows Firewall rule (Private networks) so phones can connect, and removes it
+  on uninstall. Releases and the build script are Windows-only; the macOS and Linux packaging scripts are gone.
+- Changed: the updater treats `2.0.0` as newer than `2.0.0-beta.N`, and never offers a pre-release to a stable install.
+- Fix: the server now reads the body of an upload before answering 401/403. Before, Windows reset the connection and a
+  phone saw a network error instead of the real reason.
+- Fix: `tests/test_redesign.py` no longer depends on today's date.
+- Docs rewritten for the server + phone design (README, SECURITY, BUILDING, API); REMOTE and SHARING marked as advanced.
+
+### Earlier in the 2.0 work
 - New: **phone API v1** (`/api/v1/...`, described in `docs/api/openapi.json`). A phone pairs once with a one-time code
   (shown as a QR link by the server) and then uses a per-device bearer token. Tokens are stored hashed in
   `devices.json`, can be revoked per device, and wrong codes are rate limited. The browser remote keeps working.

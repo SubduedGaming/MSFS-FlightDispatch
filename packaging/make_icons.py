@@ -1,4 +1,4 @@
-"""Render the SkyDispatch icon (PNG sizes + Windows .ico + macOS .iconset). Run: python packaging/make_icons.py"""
+"""Render the SkyDispatch icon (app PNG + Windows .ico). Run: python packaging/make_icons.py"""
 from __future__ import annotations
 
 import os
@@ -69,14 +69,6 @@ def main() -> None:
     render(512).save(str(res / "icon.png"))
     (ROOT / "packaging" / "windows").mkdir(parents=True, exist_ok=True)
     write_ico(ROOT / "packaging" / "windows" / "skydispatch.ico")
-    iconset = ROOT / "packaging" / "macos" / "SkyDispatch.iconset"
-    iconset.mkdir(parents=True, exist_ok=True)
-    for base in (16, 32, 128, 256, 512):
-        render(base).save(str(iconset / f"icon_{base}x{base}.png"))
-        render(base * 2).save(str(iconset / f"icon_{base}x{base}@2x.png"))
-    linux = ROOT / "packaging" / "linux"
-    linux.mkdir(parents=True, exist_ok=True)
-    render(256).save(str(linux / "skydispatch.png"))
     print("icons written")
 
 

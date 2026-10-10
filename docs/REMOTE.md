@@ -1,18 +1,22 @@
-# Browser remote: use SkyDispatch from a Mac, tablet or phone
+# The older browser page
 
-The Windows app can serve a web version of itself. Open it in any browser on your network and you get the same
-pages (Dashboard, Job Board, Messenger, Flight, Freelance, Hangar, Logbook, Finances, Settings) as a **remote
-control** for the app on the PC. Nothing runs in the browser except the display:
+> **The Android app is the way to play SkyDispatch 2.0** (see the [README](../README.md)). The server still serves the
+> original browser page on the same port, for use from a tablet, a Mac or any browser. It is no longer developed, and
+> it needs its own access code (separate from phone pairing). With `speech_output` on `phone` (the default) the PC does
+> not speak for the browser page: set it to `pc` in the app's Settings if you want that.
+
+Open it in any browser on your network and you get the pages (Dashboard, Job Board, Messenger, Flight, Freelance,
+Hangar, Logbook, Finances, Settings) as a **remote control** for the server on the PC. Nothing runs in the browser
+except the display:
 
 - the sim connection, AI dispatcher, copilot, database and **voice** all stay on the Windows PC;
-- replies are spoken by the PC and **Hold to talk** records from the PC's microphone;
-- you can fly on a single monitor and keep the career screens, charts and chat on your Mac next to it.
+- with `speech_output` set to `pc`, replies are spoken by the PC and **Hold to talk** records from the PC's microphone.
 
 ## Turn it on (Windows PC)
-1. **Settings > Simulator > Browser remote**, tick **Serve the web remote from this PC**.
-2. Click **Generate** for an access code, then **Save**. The page lists the address, for example
-   `http://192.168.1.20:8766/`.
-3. Allow SkyDispatch through Windows Firewall (Private networks) if Windows asks.
+1. In the SkyDispatch window, **Settings > Simulator**: tick **Accept connections from the SkyDispatch phone app (and the
+   browser remote)**, click **Generate** for a *Browser access code*, then **Save**. The page lists the address, for
+   example `http://192.168.1.20:8766/`.
+2. Allow SkyDispatch through Windows Firewall (Private networks) if Windows asks.
 
 ## Use it
 Open the address on the Mac (or iPad, phone) and type the access code once; the browser then stays signed in for

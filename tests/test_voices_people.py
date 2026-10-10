@@ -103,6 +103,7 @@ def test_drop_unless_cancels_only_other_conversations():
 def ctx(qtbot, tmp_path):
     s = Settings()
     s.sim.mode = "simulated"
+    s.voice.output = "pc"                      # these tests are about the PC's own speakers (the default is the phone)
     s.ai.base_url = "http://127.0.0.1:9/v1"
     s.ai.timeout_s = 1
     c = AppContext(s, Database(tmp_path / "c.db"))

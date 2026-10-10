@@ -79,7 +79,7 @@ class VoiceSettings:
     output_device: str = ""
     push_to_talk_key: str = "F9"
     auto_speak_replies: bool = True
-    output: str = "pc"               # where speech is heard: "pc" (this computer's speakers) or "phone" (the Android app)
+    output: str = "phone"            # where speech is heard: "phone" (the Android app) or "pc" (this computer's speakers)
     voices_prompted: bool = False    # asked once whether to download the natural character voices
 
 

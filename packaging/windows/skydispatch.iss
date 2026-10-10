@@ -44,6 +44,7 @@ Name: "main"; Description: "SkyDispatch application"; Types: full compact custom
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Shortcuts:"
+Name: "firewall"; Description: "Allow phones on my home network to connect (Windows Firewall, Private networks only)"; GroupDescription: "Phones:"; Check: IsAdminInstallMode
 
 [Files]
 Source: "..\..\dist\SkyDispatch\*"; DestDir: "{app}"; Components: main; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -54,9 +55,13 @@ Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
 
 [Run]
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall add rule name=""{#AppName}"" dir=in action=allow program=""{app}\{#AppExe}"" profile=private enable=yes"; Flags: runhidden; Tasks: firewall; StatusMsg: "Allowing phones through the firewall..."
 Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
 ; An in-app update runs silently (/UPDATING=1): start the app again afterwards, as the normal user (not elevated).
 Filename: "{app}\{#AppExe}"; Flags: nowait runasoriginaluser; Check: IsUpdate
+
+[UninstallRun]
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""{#AppName}"" program=""{app}\{#AppExe}"""; Flags: runhidden; RunOnceId: "RemoveFirewallRule"
 
 [Code]
 var

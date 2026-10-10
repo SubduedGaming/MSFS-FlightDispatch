@@ -1,27 +1,32 @@
 # Building installers
 
+## Windows server installer
 ```bash
-python -m venv .venv && source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install -e ".[dev,voice]"                            # add ",sim" on Windows
+python -m venv .venv && .venv\Scripts\activate
+pip install -e ".[dev,voice,sim,discovery]"
 python packaging/build.py
 ```
 
-`build.py` renders icons, runs PyInstaller (`packaging/skydispatch.spec`) and then builds the native installer for the
-OS you are on. Results are written to `dist/`.
+`build.py` renders the icons, runs PyInstaller (`packaging/skydispatch.spec`) and builds the installer with
+[Inno Setup 6](https://jrsoftware.org/isinfo.php). The result is `dist/SkyDispatch-Setup-<ver>.exe`, with a built-in
+uninstaller. When installed for all users the installer can add a Windows Firewall rule (Private networks only) so
+phones can connect; it is removed again on uninstall. It must be built on Windows. There is no automated release
+workflow; installers are built by hand.
 
-| OS | Output | Requires |
-|----|--------|----------|
-| Windows | `SkyDispatch-Setup-<ver>.exe` GUI installer with built-in uninstaller (`unins000.exe`) | [Inno Setup 6](https://jrsoftware.org/isinfo.php) |
-| macOS | `SkyDispatch-<ver>.dmg` and `SkyDispatch-<ver>.pkg` + `Uninstall SkyDispatch.command` | Xcode command-line tools |
-| Linux | `skydispatch_<ver>_amd64.deb` and `SkyDispatch-<ver>-x86_64.AppImage` | `dpkg-deb`; `appimagetool` for the AppImage |
-
-Installers must be built on their own OS (PyInstaller does not cross-compile), by running `python packaging/build.py`
-on that OS. There is no automated release workflow; installers are built by hand.
+## Android app
+Needs a JDK 17 and the Android SDK (platform 35 and build-tools; `android/local.properties` holds `sdk.dir`).
+```bash
+cd android
+./gradlew testDebugUnitTest assembleDebug          # gradlew.bat on Windows
+```
+The APK is `android/app/build/outputs/apk/debug/app-debug.apk`. It is signed with the debug key, which is fine for
+sideloading; a Play Store release would need its own signing key. Rename it `SkyDispatch-<ver>.apk` for a release.
+To try it without a phone, create an Android emulator (API 35, Google APIs image) and pair with the address
+`10.0.2.2` (the emulator's name for the PC) and the server's port.
 
 ## Signing (recommended before sharing builds)
-- **macOS:** set `MACOS_CODESIGN_IDENTITY` and `MACOS_INSTALLER_IDENTITY`, then notarise the result with `notarytool`.
-  Unsigned builds work, but Gatekeeper requires right-click > Open on first launch.
 - **Windows:** sign `SkyDispatch.exe` and the installer with `signtool` to avoid SmartScreen warnings.
+- **Android:** sign the release APK with your own key (`apksigner`).
 
 ## Size
 The speech models are downloaded on demand, but the voice libraries (`faster-whisper`, `onnxruntime`) add a few hundred
