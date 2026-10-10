@@ -132,11 +132,11 @@ EXPERIENCE_PRESETS = {
 _REPRESENTATIVE = {"piston": "c172", "twin": "baron", "turboprop": "c208", "jet": "cj4", "airliner": "b738"}
 
 
-def apply_experience_preset(db, preset_id: str, days_ago: float = 14.0) -> None:
+def apply_experience_preset(db, preset_id: str, days_ago: float = 14.0, now: datetime | None = None) -> None:
     """Give a new pilot a starting logbook: total time, skill and hours per aircraft class (as 'prior' flights)."""
     label, total_h, skill, cats = EXPERIENCE_PRESETS.get(preset_id, EXPERIENCE_PRESETS["new"])
     db.update_pilot(skill=float(skill), total_minutes=total_h * 60.0)
-    started = datetime.now(timezone.utc).timestamp() - days_ago * 86400
+    started = (now or datetime.now(timezone.utc)).timestamp() - days_ago * 86400
     iso = datetime.fromtimestamp(started, timezone.utc).replace(microsecond=0).isoformat()
     db.set_meta("ratings_granted", "")             # let the new logbook decide which ratings the pilot already holds
     for cat, hours in cats.items():
@@ -147,4 +147,4 @@ def apply_experience_preset(db, preset_id: str, days_ago: float = 14.0) -> None:
         assert fid
     from ..core.config import Settings
     from .credentials import Credentials
-    Credentials(db, Settings()).ensure_defaults()
+    Credentials(db, Settings()).ensure_defaults(now)

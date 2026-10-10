@@ -171,6 +171,19 @@ class _Handler(BaseHTTPRequestHandler):
             return None
         return data if isinstance(data, dict) else None
 
+    def _drain(self) -> None:
+        """Read and drop an unread request body. Replying and closing with unread data makes Windows reset the
+        connection, so a client uploading a recording would see an error instead of our 4xx."""
+        try:
+            left = min(int(self.headers.get("Content-Length") or 0), MAX_AUDIO)
+        except ValueError:
+            return
+        while left > 0:
+            chunk = self.rfile.read(min(left, 65536))
+            if not chunk:
+                break
+            left -= len(chunk)
+
     # ---------------------------------------------------------------- verbs
     @staticmethod
     def _v1(path: str) -> str:
@@ -201,9 +214,11 @@ class _Handler(BaseHTTPRequestHandler):
         # Browsers send cookies on their own, so cookie requests must prove they are ours with a custom header; an
         # explicit Authorization header cannot be forged by another website.
         if device is None and self.headers.get("X-SkyDispatch") != "1":
+            self._drain()
             return self._json(403, {"error": "Forbidden"})
         if path == "/api/voice/transcribe":                # a recording, not JSON
             if device is None and not self._authed():
+                self._drain()
                 return self._json(401, {"error": "Sign in with your access code."})
             return self._transcribe(dict(parse_qsl(url.query)))
         body = self._read_body()

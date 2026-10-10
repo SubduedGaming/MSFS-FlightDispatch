@@ -165,7 +165,7 @@ def test_a_company_will_not_hire_without_the_ratings(career):
 
 def test_course_flow_pay_wait_then_rating(career):
     c = career.credentials
-    quals.apply_experience_preset(career.db, "student", days_ago=3)         # 40 h
+    quals.apply_experience_preset(career.db, "student", days_ago=3, now=NOW)         # 40 h
     career.db.add_transaction(20000, "t", "funds")
     assert not c.has("ir")
     before = career.db.pilot().balance
@@ -220,7 +220,7 @@ def test_presets_and_the_starter_aircraft_bring_the_right_ratings(career):
 def test_existing_careers_keep_what_they_already_do(career):
     career.db.x("DELETE FROM certificates")
     career.db.set_meta("ratings_granted", "")
-    quals.apply_experience_preset(career.db, "student", days_ago=3)
+    quals.apply_experience_preset(career.db, "student", days_ago=3, now=NOW)
     career.db.x("DELETE FROM certificates")
     career.db.set_meta("ratings_granted", "")
     career.db.x("INSERT INTO employment (employer_id, hired_at, status) VALUES ('coastline', ?, 'active')", (NOW.isoformat(),))
@@ -302,8 +302,9 @@ def test_housekeeping_runs_everything_and_reports_events(career):
     seen = []
     career.subscribe(lambda n, p: seen.append(n))
     career.db.add_transaction(30000, "t", "funds")
-    quals.apply_experience_preset(career.db, "student", days_ago=3)
+    quals.apply_experience_preset(career.db, "student", days_ago=3, now=NOW)
     career.credentials.start_course("ir", NOW)
+    career.db.x("UPDATE certificates SET expires_at = ? WHERE kind = 'medical'", ((NOW + timedelta(days=85)).isoformat(),))
     career.housekeeping(days(80))
     assert "training_done" in seen and "bills_charged" in seen and "credential_expiring" in seen
     assert career.credentials.has("ir")
