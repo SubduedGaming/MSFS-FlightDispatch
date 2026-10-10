@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -39,7 +40,8 @@ def main() -> int:
     run(sys.executable, "-m", "PyInstaller", "packaging/skydispatch.spec", "--noconfirm", "--clean")
     if system == "Windows":
         iscc = shutil.which("ISCC") or r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
-        run(iscc, f"/DAppVersion={__version__}", "packaging/windows/skydispatch.iss", env=env)
+        nums = (re.match(r"\d+(?:\.\d+)*", __version__).group(0).split(".") + ["0"] * 4)[:4]
+        run(iscc, f"/DAppVersion={__version__}", f"/DAppNumeric={'.'.join(nums)}", "packaging/windows/skydispatch.iss", env=env)
     elif system == "Darwin":
         run("bash", "packaging/macos/build_macos.sh", __version__, env=env)
     else:

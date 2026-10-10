@@ -29,6 +29,8 @@ def test_version_parsing_and_comparison():
     assert updater.is_newer("1.1.2", "1.1.1") and updater.is_newer("1.10.0", "1.9.9")
     assert not updater.is_newer("1.1.1", "1.1.1") and not updater.is_newer("1.1", "1.1.0")
     assert updater.is_newer("2", "1.9.9") and not updater.is_newer("", "1.0.0")
+    assert updater.is_newer("2.0.0", "2.0.0-beta.1") and not updater.is_newer("2.0.0-beta.1", "2.0.0")
+    assert not updater.is_newer("2.0.0-beta.1", "2.0.0-beta.1") and updater.is_newer("2.0.1", "2.0.0-beta.1")
 
 
 def test_parse_release_picks_the_asset_for_this_os(monkeypatch):

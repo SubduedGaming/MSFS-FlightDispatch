@@ -3,6 +3,9 @@
 #ifndef AppVersion
   #define AppVersion "1.4.3"
 #endif
+#ifndef AppNumeric
+  #define AppNumeric "1.4.3.0"       ; VersionInfoVersion must be four numbers; AppVersion may carry "-beta.1"
+#endif
 #define AppName "SkyDispatch"
 #define AppExe "SkyDispatch.exe"
 
@@ -30,7 +33,7 @@ PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 CloseApplications=yes
 RestartApplications=no
-VersionInfoVersion={#AppVersion}
+VersionInfoVersion={#AppNumeric}
 VersionInfoDescription={#AppName} Setup
 
 [Languages]

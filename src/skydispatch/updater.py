@@ -57,10 +57,17 @@ def parse_version(text: str) -> tuple[int, ...]:
     return tuple(int(x) for x in m.group(1).split(".")) if m else ()
 
 
+def _is_prerelease(text: str) -> bool:
+    return bool(re.match(r"\s*v?\d+(?:\.\d+)*[-+.]?(?:a|b|rc|alpha|beta|pre)", text or "", re.I))
+
+
 def is_newer(candidate: str, current: str = __version__) -> bool:
     a, b = parse_version(candidate), parse_version(current)
     n = max(len(a), len(b))
-    return bool(a) and a + (0,) * (n - len(a)) > b + (0,) * (n - len(b))
+    a, b = a + (0,) * (n - len(a)), b + (0,) * (n - len(b))
+    if a == b:                       # 2.0.0 is newer than 2.0.0-beta.1
+        return bool(a) and _is_prerelease(current) and not _is_prerelease(candidate)
+    return bool(a) and a > b
 
 
 def _asset_for_this_os(assets: list[dict]) -> dict | None:
