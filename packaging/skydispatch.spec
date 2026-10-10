@@ -20,7 +20,7 @@ binaries, hidden = [], collect_submodules("skydispatch")
 
 # Optional feature packages: bundled only when they are installed in the build environment.
 for pkg in ("faster_whisper", "ctranslate2", "tokenizers", "onnxruntime", "av", "piper", "sounddevice",
-            "_sounddevice_data", "pynput", "numpy", "SimConnect"):
+            "_sounddevice_data", "numpy", "SimConnect"):
     if importlib.util.find_spec(pkg):
         d, b, h = collect_all(pkg)
         datas += d

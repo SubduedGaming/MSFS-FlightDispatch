@@ -2,7 +2,7 @@ import sys
 
 
 def main() -> int:
-    from .ui.app import run
+    from .server_gui.app import run
     return run()
 
 

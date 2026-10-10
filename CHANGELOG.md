@@ -11,6 +11,13 @@
   (`GET /api/v1/voice/audio/<id>`, the characters' own Piper voices) instead of playing on the PC;
   `POST /api/v1/voice/transcribe` turns a recording from the phone into text (and can send it into a conversation).
   The default stays `pc`. See `docs/API.md`.
+- Changed: **the Windows app is now a server.** The desktop gameplay screens (dashboard, job board, messenger, flight,
+  hangar, logbook, finances, training) and the setup wizard are gone; you play from the phone app. The window is a small
+  control panel with **Status** (what is running), **Phones** (pairing QR code, paired phones, remove), **Settings** and
+  **Logs**. Closing it keeps SkyDispatch running in the tray; *Start with Windows* is an option in Settings > General.
+  The phone API switches itself on the first time the server edition starts. Settings, career and backups are unchanged.
+- Removed: the global push-to-talk hotkey (`pynput`); hold-to-talk now happens on the phone.
+- New dependency: `segno` (draws the QR code).
 - Internal: the backend runs without Qt (`server/engine.py`); the desktop `AppContext` is a thin Qt layer on top of it.
 - CI: macOS dropped from the test matrix (releases are Windows-only); `numpy` added to the test dependencies.
 

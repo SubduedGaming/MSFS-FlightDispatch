@@ -1,4 +1,4 @@
-"""Application bootstrap: single instance, theming, wizard on first run."""
+"""Server application bootstrap: single instance, tray icon, admin window, and the phone API."""
 from __future__ import annotations
 
 import logging
@@ -13,7 +13,7 @@ from .. import APP_NAME, APP_ORG, __version__
 from ..core import paths
 from ..core.config import Settings
 from ..core.logging_setup import setup_logging
-from . import theme
+from ..ui import theme
 
 log = logging.getLogger(__name__)
 
@@ -55,20 +55,26 @@ def apply_pending_restore() -> None:
 
 
 def run(argv: list[str] | None = None) -> int:
+    argv = list(argv if argv is not None else sys.argv)
+    minimized = "--minimized" in argv
+    argv = [a for a in argv if a != "--minimized"]
     setup_logging()
-    log.info("%s %s starting", APP_NAME, __version__)
-    app = QApplication(argv if argv is not None else sys.argv)
+    log.info("%s server %s starting", APP_NAME, __version__)
+    app = QApplication(argv)
     app.setApplicationName(APP_NAME)
     app.setOrganizationName(APP_ORG)
     app.setApplicationVersion(__version__)
-    icon = resource_path("icon.png")
-    if icon.exists():
-        app.setWindowIcon(QIcon(str(icon)))
+    app.setQuitOnLastWindowClosed(False)                  # the window hides to the tray; Quit really exits
+    icon = QIcon()
+    icon_file = resource_path("icon.png")
+    if icon_file.exists():
+        icon = QIcon(str(icon_file))
+        app.setWindowIcon(icon)
 
     lock = QLockFile(str(paths.data_dir() / "skydispatch.lock"))
     lock.setStaleLockTime(0)
     if not lock.tryLock(100):
-        QMessageBox.information(None, APP_NAME, f"{APP_NAME} is already running.")
+        QMessageBox.information(None, APP_NAME, f"{APP_NAME} is already running (look for it in the tray).")
         return 0
 
     hold_running_mutex()
@@ -77,14 +83,18 @@ def run(argv: list[str] | None = None) -> int:
     app.setStyleSheet(theme.stylesheet())
 
     apply_pending_restore()
-    from .context import AppContext
-    from .main_window import MainWindow
+    from ..ui.context import AppContext
+    from .window import AdminWindow
     try:
         ctx = AppContext.create()
     except Exception as exc:
         log.exception("Could not open the career database")
         QMessageBox.critical(None, APP_NAME, f"Could not open your career data:\n{exc}\n\nSee the log in {paths.log_dir()}")
         return 1
+    if not ctx.settings.ui.server_mode:                    # first start of the server edition: the phone API is the point
+        ctx.settings.remote.enabled = True
+        ctx.settings.ui.server_mode = True
+        ctx.settings.save()
     previous_hook = sys.excepthook
 
     def notify_hook(exc_type, exc, tb):
@@ -93,24 +103,20 @@ def run(argv: list[str] | None = None) -> int:
             ctx.toast.emit("bad", f"Unexpected error: {exc}. Details are in the log (Help > Open log folder).")
 
     sys.excepthook = notify_hook
-    win = MainWindow(ctx)
+    win = AdminWindow(ctx, icon)
     geo = ctx.settings.ui.window_geometry
     if geo:
         win.restoreGeometry(QByteArray.fromBase64(geo.encode()))
-    win.show()
+    if not ctx.pairing.devices():
+        win.tabs.setCurrentWidget(win.phones_tab)       # nothing paired yet: start where you pair
+    if not (minimized and win.tray is not None):
+        win.show()
 
-    if not ctx.career.has_career or not ctx.settings.ui.first_run_complete:
-        win.run_wizard()
-        if not ctx.career.has_career:         # wizard cancelled
-            ctx.shutdown()
-            return 0
-    else:
-        ctx.start_sim()
-        ctx.check_ai()
+    ctx.start_sim()
+    ctx.check_ai()
     ctx.start_web()
     ctx.check_for_updates()
     QTimer.singleShot(2500, win.offer_voices)
-    win.goto("dashboard")
     code = app.exec()
     lock.unlock()
     return code

@@ -9,7 +9,7 @@ from pathlib import Path
 from PySide6 import __version__ as pyside_version
 from PySide6.QtCore import QUrl, Signal
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout, QLabel, QMessageBox,
+from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QHBoxLayout, QMessageBox,
                                QProgressBar, QPushButton, QTextBrowser, QVBoxLayout)
 
 from .. import APP_NAME, __version__
@@ -17,7 +17,6 @@ from ..core import paths
 from ..data.aircraft import CATALOG
 from ..sim.installed import format_ids, parse_ids
 from .. import updater
-from . import fmt
 from .widgets import heading, muted
 from .workers import run_async
 
@@ -29,8 +28,8 @@ class AboutDialog(QDialog):
         self.setMinimumWidth(460)
         lay = QVBoxLayout(self)
         lay.addWidget(heading(f"{APP_NAME} {__version__}"))
-        lay.addWidget(muted("A career-mode add-on for Microsoft Flight Simulator 2020 and 2024 with an AI "
-                            "flight dispatcher, job market, hangar and logbook."))
+        lay.addWidget(muted("The server for the SkyDispatch phone app: a career-mode add-on for Microsoft Flight Simulator "
+                            "2020 and 2024 with an AI flight dispatcher, job market, hangar and logbook."))
         info = QTextBrowser()
         info.setMaximumHeight(170)
         tts_ok, tts_msg = ctx.voice.tts_status()
@@ -118,39 +117,6 @@ class UpdateDialog(QDialog):
             return
         self.accept()
         self.quit_for_update.emit()
-
-
-class FlightResultDialog(QDialog):
-    def __init__(self, ctx, settlement, parent=None):
-        super().__init__(parent)
-        s = ctx.settings
-        m, sc = settlement.metrics, settlement.score
-        self.setWindowTitle("Flight complete")
-        self.setMinimumWidth(480)
-        lay = QVBoxLayout(self)
-        title = {"completed": "Flight complete", "diverted": "Wrong destination", "crashed": "Aircraft lost",
-                 "aborted": "Flight abandoned"}.get(m.outcome, "Flight ended")
-        lay.addWidget(heading(f"{title}  -  grade {sc.grade}"))
-        lay.addWidget(muted(settlement.job.title if settlement.job else "Free flight (no contract)"))
-        form = QFormLayout()
-        form.addRow("Score:", QLabel(f"{sc.score:.0f} / 100"))
-        form.addRow("Block time:", QLabel(fmt.duration(m.block_min)))
-        form.addRow("Distance:", QLabel(fmt.dist(s, m.distance_nm)))
-        if m.landing_fpm is not None:
-            form.addRow("Landing:", QLabel(f"{abs(m.landing_fpm):.0f} fpm, {m.landing_g:.2f} G"))
-        form.addRow("Payout:", QLabel(fmt.money(s, settlement.payout)))
-        form.addRow("Operating cost:", QLabel(fmt.money(s, -settlement.costs)))
-        form.addRow("Net:", QLabel(fmt.money(s, settlement.payout - settlement.costs, signed=True)))
-        lay.addLayout(form)
-        if settlement.notes:
-            box = QTextBrowser()
-            box.setMaximumHeight(120)
-            box.setHtml("<ul>" + "".join(f"<li>{n}</li>" for n in settlement.notes) + "</ul>")
-            lay.addWidget(box)
-        lay.addWidget(muted("Your dispatcher will debrief you in the Dispatcher tab."))
-        bb = QDialogButtonBox(QDialogButtonBox.Ok)
-        bb.accepted.connect(self.accept)
-        lay.addWidget(bb)
 
 
 class UninstallDialog(QDialog):

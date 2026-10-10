@@ -13,6 +13,7 @@ dependencies = [
     "PySide6-Essentials>=6.6",
     "httpx>=0.25",
     "platformdirs>=4.0",
+    "segno>=1.6",                # draws the pairing QR code in the admin window
 ]
 
 [project.optional-dependencies]
@@ -22,9 +23,7 @@ sim = ["SimConnect>=0.4.24; sys_platform == 'win32'"]
 stt = ["faster-whisper>=1.0", "sounddevice>=0.4", "numpy>=1.24"]
 # Neural text-to-speech (Piper) + audio playback.
 tts = ["piper-tts>=1.2", "sounddevice>=0.4", "numpy>=1.24"]
-# Push-to-talk key that works while MSFS has focus.
-hotkey = ["pynput>=1.7"]
-voice = ["skydispatch[stt,tts,hotkey]"]
+voice = ["skydispatch[stt,tts]"]
 # Announce the server on the LAN so the phone can find it.
 discovery = ["zeroconf>=0.130"]
 dev = ["pytest>=8", "pytest-qt>=4.4", "pyinstaller>=6.5", "numpy>=1.24"]

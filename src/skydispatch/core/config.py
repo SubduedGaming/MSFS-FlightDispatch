@@ -118,6 +118,7 @@ class UISettings:
     first_run_complete: bool = False
     window_geometry: str = ""
     check_updates: bool = True       # look for a newer release on GitHub at startup
+    server_mode: bool = False        # the server edition has switched the phone API on once (first start)
 
 
 @dataclass

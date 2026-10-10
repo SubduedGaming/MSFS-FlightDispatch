@@ -4,7 +4,8 @@ The Windows server exposes a JSON API for the Android app. The full contract is
 [`docs/api/openapi.json`](api/openapi.json); a test keeps it in step with the server. This page explains how to connect.
 
 ## Running the server
-- Windows app: **Settings > Simulator > Browser remote**, tick *Serve the web remote from this PC*.
+- Windows app: it starts the phone API on first launch. Open the **Phones** tab to see the pairing QR code and code; turn
+  access off or on from the **Status** tab (or **Settings > Simulator > Phone access**).
 - Without a window: `skydispatch-server` (add `--port 9000`, `--sim simulated|simconnect|bridge`, `--no-sim`,
   `--revoke-all`). It prints the address and a pairing code.
 
