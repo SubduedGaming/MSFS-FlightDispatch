@@ -1,8 +1,7 @@
-"""Fact sheets and canned text used for briefings/debriefs.
+"""Fact sheets used for briefings and debriefs.
 
 Facts are computed in code (never by the LLM) so numbers are always right.
-The LLM only rephrases them in the dispatcher's voice; if it is offline we
-fall back to these templates.
+The LLM puts them in the dispatcher's voice; if it cannot, the pilot is told (there is no stock text).
 """
 from __future__ import annotations
 
@@ -54,24 +53,6 @@ def offer_summary(db: Database, job: Job) -> str:
             f"{load.capitalize()}. Pays {job.payout:,.0f}{plane}.")
 
 
-def template_briefing(facts: dict, persona_name: str) -> str:
-    lines = [
-        f"Job {facts['job_id']}: {facts['from']} to {facts['to']}, {facts['distance_nm']} nm, "
-        f"track {facts.get('initial_track_deg', '?')} degrees.",
-        f"Payload: {facts['payload']} for {facts['client']}. Pays {facts['payout']:,}.",
-    ]
-    if "est_fuel_gal" in facts:
-        lines.append(f"You're in {facts['aircraft']}. Estimated block time {facts['est_block_time']}; plan at "
-                     f"least {facts['est_fuel_gal']} gallons, you have {facts['fuel_on_board_gal']}.")
-    elif "aircraft" in facts:
-        lines.append(f"You're flying {facts['aircraft']}, estimated block time {facts['est_block_time']}, "
-                     f"approach speed around {facts.get('approach_speed_kt', '?')} knots.")
-    if facts.get("deadline") != "none":
-        lines.append(f"The client needs you there within {facts['deadline']}.")
-    lines.append("Start engines when you're ready and I'll start the clock. Safe flight. - " + persona_name)
-    return " ".join(lines)
-
-
 def settlement_facts(s) -> dict:
     m, sc = s.metrics, s.score
     return {
@@ -83,38 +64,3 @@ def settlement_facts(s) -> dict:
         "penalties": sc.penalties, "notes": s.notes, "arrival": s.arrival,
         "job": s.job.title if s.job else "free flight (no contract)",
     }
-
-
-def template_debrief(facts: dict, persona_name: str) -> str:
-    if facts["outcome"] == "crashed":
-        return "We lost contact and the aircraft is a write-off. Let's talk safety before you fly again."
-    if facts["outcome"] == "diverted":
-        return f"You ended up at {facts['arrival'] or 'somewhere unplanned'}. The client's not paying for that."
-    if facts["outcome"] == "aborted":
-        return "Flight abandoned. We'll log it and move on."
-    net = facts["payout"] - facts["operating_costs"]
-    parts = [f"Welcome in, Captain. Grade {facts['grade']} ({facts['score']:.0f}/100)."]
-    if facts["landing_fpm"] is not None:
-        parts.append(f"Touchdown at {facts['landing_fpm']} fpm.")
-    if facts["payout"]:
-        parts.append(f"Payout {facts['payout']:,} less {facts['operating_costs']:,} running costs, net {net:,}.")
-    if facts["penalties"]:
-        parts.append("Points lost: " + "; ".join(facts["penalties"]) + ".")
-    parts.append(f"- {persona_name}")
-    return " ".join(parts)
-
-
-EVENT_TEMPLATES = {
-    "start": "Engines running, I've started the clock. Call when you're rolling.",
-    "takeoff": "Wheels up, {detail}. Good luck out there.",
-    "landing": "{detail}.",
-    "overspeed": "Watch your airspeed, Captain. That's {detail}",
-    "low_fuel": "{detail}. Think about your options.",
-    "fuel_exhausted": "Fuel is gone. Find somewhere to put it down.",
-    "bounce": "That was a bounce. Settle it down.",
-    "slew": "I'm seeing a position jump. Anything I should know about?",
-    "wrong_aircraft": "{detail}. The contract was written for a different aircraft.",
-    "wrong_origin": "{detail}.",
-    "arrived": "Parked and secure. Nice work. I'll have your debrief in a moment.",
-    "crash": "Mayday received... we've lost you. Report in if you can.",
-}

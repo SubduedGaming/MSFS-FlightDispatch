@@ -1,3 +1,4 @@
+from conftest import AI_URL, NO_AI_URL  # noqa: F401
 import http.client
 import json
 import threading
@@ -18,7 +19,7 @@ TOKEN = "test-code-123"
 def ctx(qtbot, tmp_path):
     s = Settings()
     s.sim.mode = "simulated"
-    s.ai.base_url = "http://127.0.0.1:9/v1"
+    s.ai.base_url = AI_URL
     s.ai.timeout_s = 1
     s.ui.first_run_complete = True
     c = AppContext(s, Database(tmp_path / "c.db"))

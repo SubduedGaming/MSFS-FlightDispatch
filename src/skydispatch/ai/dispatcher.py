@@ -181,7 +181,13 @@ class Dispatcher:
             self.db.set_job(j.id, status="expired")
         try:
             job = self.career.employer_dispatch.offer_flights(employer, minutes, 1)[0]
+            intro = self._assign_intro(thread, minutes, job) if announce else ""      # raises if the model cannot
             self.career.accept_job(job.id)                     # the flight is rostered, not offered
+        except LLMError:
+            self.db.set_meta(f"await:{thread}", "1")               # nothing was rostered: ask again
+            for j in self.db.jobs("offered", scope=employer.id):
+                self.db.set_job(j.id, status="expired")
+            raise
         except (NoFlightsAvailable, CareerError) as exc:
             self.db.set_meta(f"await:{thread}", "1")
             for j in self.db.jobs("offered", scope=employer.id):
@@ -191,7 +197,7 @@ class Dispatcher:
             return {"error": str(exc)}
         job = self.db.job(job.id)
         if announce:
-            self.say(self._assign_intro(thread, minutes, job), thread)
+            self.say(intro, thread)
         summary = B.offer_summary(self.db, job)
         self.say(summary, thread, kind="offer", payload={"job_id": job.id})
         return {"minutes": minutes, "assigned": {"job_id": job.id, "summary": summary}}
@@ -200,14 +206,11 @@ class Dispatcher:
         return self.handle_availability(thread, minutes, announce=False)
 
     def _assign_intro(self, thread: str, minutes: int, job: Job) -> str:
-        fallback = (f"{_fmt_minutes(minutes)} - got it. I've rostered you on this one. "
-                    "Your briefing is coming through now.")
-        text = self._llm_oneshot(
+        return self._llm_oneshot(
             f"The pilot told you they have {_fmt_minutes(minutes)} free. You have just assigned them this flight "
             f"(shown as a card below your message): {json.dumps(B.offer_summary(self.db, job))}. Say one or two short "
             "sentences telling them it is their flight. Do not repeat the details and do not offer alternatives.",
             max_tokens=80, persona=self.persona_for(thread))
-        return text or fallback
 
     def accept_offer(self, job_id: int, thread: str) -> Job:
         job = self.career.accept_job(job_id)             # raises CareerError with a readable message
@@ -262,7 +265,10 @@ class Dispatcher:
             except LLMError:
                 self.online = False
                 raise
-            reply = reply.strip() or "Say again? I didn't catch that."
+            if not reply.strip():
+                raise LLMError("The AI model returned an empty answer. If it is a reasoning model, turn its thinking "
+                               "off in Settings > AI.")
+            reply = reply.strip()
             self.say(reply, thread)
             return reply
 
@@ -275,15 +281,7 @@ class Dispatcher:
         schemas = schemas_for(thread)
 
         for _ in range(MAX_TOOL_ROUNDS):
-            try:
-                r = self.client.chat(messages, tools=None if use_prompt_mode else schemas)
-            except LLMError as exc:
-                if not use_prompt_mode and self.settings.ai.tool_mode == "auto" and "tool" in str(exc).lower():
-                    log.info("Model rejected native tools; switching to prompt tool protocol")
-                    self._prompt_tools = use_prompt_mode = True
-                    messages[0]["content"] = self.system_prompt(thread, True)
-                    continue
-                raise
+            r = self.client.chat(messages, tools=None if use_prompt_mode else schemas)
             calls = r.tool_calls or self._parse_text_calls(r.text)
             if not calls:
                 return _clean_spoken(r.text)
@@ -299,7 +297,7 @@ class Dispatcher:
                 else:
                     messages.append({"role": "user", "content": f"<tool_result name=\"{c.name}\">"
                                                                 f"{json.dumps(result)}</tool_result>"})
-        return "I'm having trouble pulling that together right now. Can you ask me again?"
+        raise LLMError("The AI model kept calling tools without giving an answer.")
 
     @staticmethod
     def _parse_text_calls(text: str) -> list[ToolCall]:
@@ -314,44 +312,38 @@ class Dispatcher:
 
     # -------------------------------------------------- proactive messaging
     def react(self, kind: str, detail: str, data: dict | None = None, thread: str = "general") -> str | None:
-        """A short in-character call-out for a flight event. Falls back to templates offline."""
+        """A short in-character call-out for a flight event. Raises LLMError if the model cannot write it."""
         if not self.settings.ai.proactive_comms or EVENT_IMPORTANCE.get(kind, 0) < 1:
             return None
-        fallback = B.EVENT_TEMPLATES.get(kind, "{detail}").format(detail=detail)
         return self._llm_oneshot(
             f"Flight event just occurred: '{kind}' - {detail}. Give a brief radio call-out reacting to this "
-            "(1 or 2 short sentences).", max_tokens=90, persona=self.persona_for(thread)) or fallback
+            "(1 or 2 short sentences).", max_tokens=90, persona=self.persona_for(thread))
 
     def brief_job(self, job: Job) -> str:
         aircraft = self.db.aircraft(job.aircraft_id) if job.aircraft_id else None
         thread = employer_thread(job.employer_id) if job.employer_id else "general"
         persona = self.persona_for(thread)
         facts = B.job_facts(self.db, job, aircraft)
-        fallback = B.template_briefing(facts, persona.name)
-        text = self._llm_oneshot(
+        return self._llm_oneshot(
             "The pilot just accepted this job. Give a pre-flight briefing in your own voice covering route, "
             "payload, aircraft, fuel advice and any deadline. Use ONLY these facts, do not invent numbers:\n"
             + json.dumps(facts), max_tokens=260, persona=persona)
-        return text or fallback
 
     def debrief(self, settlement) -> str:
         thread = employer_thread(settlement.employer_id) if settlement.employer_id else "general"
         persona = self.persona_for(thread)
         facts = B.settlement_facts(settlement)
-        fallback = B.template_debrief(facts, persona.name)
-        text = self._llm_oneshot(
+        return self._llm_oneshot(
             "The pilot's flight just finished. Give a debrief in your own voice: acknowledge the result, "
             "comment on landing and any penalties, mention pay. Use ONLY these facts:\n" + json.dumps(facts),
             max_tokens=220, persona=persona)
-        return text or fallback
 
     def hr_reply(self, employer: Employer, accepted: bool, base_message: str) -> str:
         """HR's reply to an application: the facts are fixed, the wording may be the model's."""
-        text = self._llm_oneshot(
+        return self._llm_oneshot(
             f"You are the HR manager at {employer.name}. Write a short, professional reply (2-3 sentences) to a pilot's "
             f"application. Decision: {'ACCEPTED' if accepted else 'REJECTED'}. Facts you must keep: {base_message}",
             max_tokens=160, persona=None)
-        return text or base_message
 
     def enhance_jobs(self, jobs: list[Job]) -> int:
         """Ask the model to rewrite job briefings with personality (one request)."""
@@ -365,15 +357,13 @@ class Dispatcher:
             "voice or as the dispatcher summarising it. Keep the load and places as given. Respond with ONLY a "
             'JSON object mapping job id (string) to the text, e.g. {"12": "..."}.\n' + json.dumps(items),
             max_tokens=700, temperature=0.9, persona=None)
-        if not text:
-            return 0
         m = re.search(r"\{.*\}", text, re.S)
-        if not m:
-            return 0
         try:
-            mapping = json.loads(m.group(0))
+            mapping = json.loads(m.group(0)) if m else None
         except ValueError:
-            return 0
+            mapping = None
+        if not isinstance(mapping, dict):
+            raise LLMError("The AI model's job descriptions could not be read.")
         n = 0
         for j in jobs:
             new = mapping.get(str(j.id))
@@ -385,24 +375,25 @@ class Dispatcher:
 
     # ---------------------------------------------------------------- utils
     def _llm_oneshot(self, instruction: str, max_tokens: int = 150, temperature: float | None = None,
-                     persona: Persona | None = None) -> str | None:
-        # When the server is known to be down, don't queue behind another request: just fall back.
-        if not self._lock.acquire(blocking=self.online is not False):
-            return None
-        try:
+                     persona: Persona | None = None) -> str:
+        """One piece of writing from the model. Raises LLMError if it cannot be written: there is no stock text."""
+        with self._lock:
             system = (persona.style + " You speak aloud over radio: short, natural, no markdown or emojis."
                       if persona else "You are a helpful writer for a flight-sim career game.")
-            r = self.client.chat([{"role": "system", "content": system},
-                                  {"role": "user", "content": instruction}],
-                                 max_tokens=max_tokens, temperature=temperature)
+            try:
+                r = self.client.chat([{"role": "system", "content": system},
+                                      {"role": "user", "content": instruction}],
+                                     max_tokens=max_tokens, temperature=temperature)
+            except LLMError:
+                self.online = False
+                raise
+            text = _clean_spoken(r.text) if persona else r.text
+            if not text.strip():
+                self.online = False
+                raise LLMError("The AI model returned an empty answer. If it is a reasoning model, turn its thinking "
+                               "off in Settings > AI.")
             self.online = True
-            return _clean_spoken(r.text) if persona else r.text
-        except LLMError as exc:
-            self.online = False
-            log.info("LLM unavailable for one-shot: %s", exc)
-            return None
-        finally:
-            self._lock.release()
+            return text
 
     def test_connection(self) -> tuple[bool, str]:
         ok, msg = self.client.health()

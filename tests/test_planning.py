@@ -1,3 +1,4 @@
+from conftest import AI_URL, NO_AI_URL  # noqa: F401
 import time
 from types import SimpleNamespace
 
@@ -326,7 +327,7 @@ def test_simconnect_provider_queues_writes_for_its_own_thread():
 def ctx(qtbot, tmp_path):
     s = Settings()
     s.sim.mode = "simulated"
-    s.ai.base_url = "http://127.0.0.1:9/v1"
+    s.ai.base_url = AI_URL
     s.ai.timeout_s = 1
     s.ui.first_run_complete = True
     s.plan.simbrief_user = "tester"

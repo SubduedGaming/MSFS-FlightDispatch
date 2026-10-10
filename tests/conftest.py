@@ -1,7 +1,10 @@
 import dataclasses
 import gc
+import json
 import os
 import random
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
@@ -11,6 +14,36 @@ from skydispatch.career import Career
 from skydispatch.core.config import Settings
 from skydispatch.db.database import Database
 from skydispatch.sim.simulated import SimulatedProvider
+
+
+class _StubAI(BaseHTTPRequestHandler):
+    """A stand-in for LM Studio: every chat request is answered with one short line. The tests are about the game's
+    rules and plumbing, not about what a model writes."""
+
+    def do_GET(self):
+        self._send({"data": [{"id": "stub-model"}]})
+
+    def do_POST(self):
+        self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        self._send({"choices": [{"message": {"role": "assistant", "content": "Roger that, Captain."},
+                                 "finish_reason": "stop"}]})
+
+    def _send(self, obj):
+        body = json.dumps(obj).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+
+_stub = ThreadingHTTPServer(("127.0.0.1", 0), _StubAI)
+threading.Thread(target=_stub.serve_forever, daemon=True).start()
+AI_URL = f"http://127.0.0.1:{_stub.server_address[1]}/v1"          # the stub model
+NO_AI_URL = "http://127.0.0.1:9/v1"                                  # nothing listens here
 
 
 @pytest.fixture(autouse=True)

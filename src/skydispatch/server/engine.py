@@ -857,7 +857,11 @@ class Engine:
                     self.speak(text, thread)
             if then:
                 then(text)
-        self.run_async(fn, done, lambda e: log.warning("AI task %s failed: %s", kind, e), ordered=True)
+        def failed(e):
+            log.warning("AI task %s failed: %s", kind, e)
+            if not self.closed:
+                self.toast.emit("bad", f"The dispatcher could not write the {kind}: {e}")
+        self.run_async(fn, done, failed, ordered=True)
 
     # ------------------------------------------------------------- employers
     def apply_to_employer(self, employer_id: str) -> ApplicationResult:
@@ -876,7 +880,11 @@ class Engine:
                 thread = employer_thread(employer.id)
                 self.thread_changed.emit(thread)
                 self.speak(hr, thread, voice=HR_VOICE, speed=1.0)     # HR is a different person from the dispatcher
-            self.run_async(work, opened, lambda e: log.warning("could not open thread: %s", e))
+            def failed(e):
+                log.warning("could not open thread: %s", e)
+                if not self.closed:
+                    self.toast.emit("bad", f"You are hired, but the company's reply could not be written: {e}")
+            self.run_async(work, opened, failed)
         return result
 
     def resign(self, employer_id: str) -> None:
@@ -925,8 +933,13 @@ class Engine:
             intro = next((m for m in reversed(last) if m["role"] == "assistant" and m["kind"] == "text"), None)
             if intro:
                 self.speak(intro["content"], thread)
-        self.run_async(lambda: self.dispatcher.handle_availability(thread, minutes), done,
-                  lambda e: (self._busy(thread, -1), log.warning("availability failed: %s", e)))
+        def failed(e):
+            self._busy(thread, -1)
+            log.warning("availability failed: %s", e)
+            if not self.closed:
+                self.toast.emit("bad", f"The dispatcher could not answer: {e}")
+                self.thread_changed.emit(thread)
+        self.run_async(lambda: self.dispatcher.handle_availability(thread, minutes), done, failed)
 
     def accept_offer(self, job_id: int, thread: str) -> None:
         try:
@@ -985,15 +998,22 @@ class Engine:
     def refresh_market(self) -> None:
         def work():
             n = self.career.refresh_market()
+            problem = ""
             try:
                 self.dispatcher.enhance_jobs(self.db.jobs("offered")[:8])   # newest first
-            except LLMError:
-                pass
-            return n
-        self.run_async(work, lambda n: None if self.closed else (
-                      self.toast.emit("info", f"{n} new contract(s) on the board"),
-                      self.career_event.emit("market_changed", {})),
-                  lambda e: None if self.closed else self.toast.emit("bad", f"Could not refresh: {e}"))
+            except LLMError as exc:
+                problem = str(exc)
+            return n, problem
+
+        def done(result):
+            if self.closed:
+                return
+            n, problem = result
+            self.toast.emit("info", f"{n} new contract(s) on the board")
+            self.career_event.emit("market_changed", {})
+            if problem:                    # the contracts are real; only the AI-written wording is missing
+                self.toast.emit("bad", f"The dispatcher could not write the job descriptions: {problem}")
+        self.run_async(work, done, lambda e: None if self.closed else self.toast.emit("bad", f"Could not refresh: {e}"))
 
     def check_ai(self) -> None:
         self.run_async(self.dispatcher.test_connection,

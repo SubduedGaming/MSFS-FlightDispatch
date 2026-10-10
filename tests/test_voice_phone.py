@@ -1,4 +1,5 @@
 """Voice on the phone: speech events and audio downloads out, recordings in. Piper and Whisper are faked."""
+from conftest import AI_URL, NO_AI_URL  # noqa: F401
 import http.client
 import io
 import json
@@ -118,7 +119,7 @@ def test_manager_wraps_synthesis_in_a_wav(monkeypatch):
 def engine(tmp_path):
     s = Settings()
     s.sim.mode = "simulated"
-    s.ai.base_url = "http://127.0.0.1:9/v1"
+    s.ai.base_url = AI_URL
     s.ai.timeout_s = 1
     s.voice.output = "phone"
     e = Engine(s, Database(tmp_path / "e.db"))

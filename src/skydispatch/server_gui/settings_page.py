@@ -454,8 +454,7 @@ class SettingsPage(Page):
         to.setRange(5, 600)
         to.setSuffix(" s")
         f.addRow("Request timeout:", to)
-        f.addRow("Tool calling:", self._bind(_combo([("Automatic (recommended)", "auto"),
-                                                       ("Native tool calling", "native"),
+        f.addRow("Tool calling:", self._bind(_combo([("Native tool calling", "native"),
                                                        ("Text protocol (any model)", "prompt")]), "ai", "tool_mode"))
         lay.addWidget(g)
         g2 = QGroupBox("Personality & behaviour")

@@ -1,4 +1,5 @@
 """The server's admin window: status, phone pairing, settings, logs, the tray and Windows startup."""
+from conftest import AI_URL, NO_AI_URL  # noqa: F401
 import http.client
 import json
 import socket
@@ -31,7 +32,7 @@ def free_port():
 def ctx(qtbot, tmp_path, monkeypatch):
     s = Settings()
     s.sim.mode = "simulated"
-    s.ai.base_url = "http://127.0.0.1:9/v1"
+    s.ai.base_url = AI_URL
     s.ai.timeout_s = 1
     s.ui.first_run_complete = True
     s.remote.port = free_port()
@@ -200,7 +201,7 @@ def test_settings_roundtrip_including_where_speech_is_heard(win, ctx):
     ctx.settings.voice.output = "phone"
     page.refresh()
     page.save()
-    assert ctx.settings.voice.output == "phone" and ctx.settings.ai.base_url.startswith("http://127.0.0.1:9")
+    assert ctx.settings.voice.output == "phone" and ctx.settings.ai.base_url == AI_URL
     page.remote_port.setValue(ctx.settings.remote.port)
     page.save()
     assert ctx.settings.remote.port == page.remote_port.value()

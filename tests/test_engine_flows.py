@@ -1,6 +1,7 @@
 """Gameplay flows driven through the Engine alone (no window): what the phone's screens do by calling the API.
 
 These replace the checks that used to sit behind the desktop pages in test_ui.py."""
+from conftest import AI_URL, NO_AI_URL  # noqa: F401
 import time
 
 import pytest
@@ -16,7 +17,7 @@ from skydispatch.server.engine import Engine
 def engine(tmp_path):
     s = Settings()
     s.sim.mode = "simulated"
-    s.ai.base_url = "http://127.0.0.1:9/v1"           # nothing listens: exercises the offline path
+    s.ai.base_url = AI_URL           # nothing listens: exercises the offline path
     s.ai.timeout_s = 1
     s.ui.first_run_complete = True
     e = Engine(s, Database(tmp_path / "f.db"))
@@ -59,6 +60,7 @@ def test_accept_a_freelance_job_and_fly_it(engine):
 
 def test_asking_the_dispatcher_offline_leaves_a_clear_message(engine):
     e = engine
+    e.settings.ai.base_url = NO_AI_URL
     on_engine(e, lambda: e.ask("hello", "general"))
     wait_for(lambda: any(m["role"] == "system" for m in e.db.messages(50, "general")), what="the offline message")
     assert any(m["role"] == "user" and m["content"] == "hello" for m in e.db.messages(50, "general"))
@@ -103,6 +105,7 @@ def test_copilot_answers_quick_actions_and_questions(engine):
     # A free-text question goes to the AI model. None is running in the tests, so the pilot is told why (no canned reply).
     toasts = []
     e.toast.connect(lambda level, msg: toasts.append((level, msg)))
+    e.settings.ai.base_url = NO_AI_URL
     on_engine(e, lambda: e.ask_copilot(text="what's our fuel?"))
     wait_for(lambda: any("could not answer" in m for _l, m in toasts), 15, "the co-pilot to say it could not answer")
     assert [m["role"] for m in e.db.messages(50, "copilot")][-1] == "user"
@@ -132,8 +135,7 @@ def test_company_career_loop_end_to_end(engine):
     assert s.metrics.outcome == "completed" and s.employer_id == "bluebird" and s.costs == 0 and s.payout > 0
     wait_for(lambda: (e.db.last_message(thread) or {"kind": ""})["kind"] == "ask_time", 15, "the next question")
     assert e.dispatcher.is_awaiting_availability(thread)
-    assert any("Grade" in m["content"] or "Welcome in" in m["content"] for m in e.db.messages(80, thread)
-               if m["role"] == "assistant")
+    wait_for(lambda: e.db.flight(s.flight_id).debrief == "Roger that, Captain.", 15, "the model-written debrief")
     assert [m for m in e.db.messages(80, "copilot") if m["kind"] == "callout"], "the copilot said nothing in flight"
     q = e.career.qualifications()
     assert q.recent_h > 0 and q.by_type_h

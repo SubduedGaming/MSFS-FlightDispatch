@@ -138,9 +138,10 @@ NOT verified:
 ## 7. Working agreements and cautions
 
 - **No fallbacks (owner's rule).** A feature either works or fails visibly with the real error: no canned replies, no
-  "closest alternative" data, no silent retries with other settings. The co-pilot follows this. The **dispatcher still has
-  fallbacks** from the original design (template job briefings, debriefs and event comments in `ai/dispatcher.py` when the
-  model fails, plus a stock "got it" reply); the owner has not yet decided whether to remove them.
+  "closest alternative" data, no silent retries with other settings. Both the co-pilot and the
+  dispatcher follow it: `Dispatcher._llm_oneshot` and `chat` raise `LLMError`, and the engine turns that into a toast with the
+  real reason. Tests use a stub AI server (`AI_URL` in `tests/conftest.py`) that answers every request with one line, and
+  `NO_AI_URL` where a test is about the model being down.
 - Reasoning models: the AI client sends `reasoning_effort` (default `none`) so models like Qwen3.5 do not spend the reply on thinking.
 
 - **No CI.** Do not add workflows back; the GitHub integration cannot cancel runs.

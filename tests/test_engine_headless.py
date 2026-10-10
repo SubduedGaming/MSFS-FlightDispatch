@@ -1,4 +1,5 @@
 """The Engine runs the whole backend without Qt: no event loop, no GUI thread."""
+from conftest import AI_URL, NO_AI_URL  # noqa: F401
 import http.client
 import json
 import subprocess
@@ -20,7 +21,7 @@ TOKEN = "headless-code"
 def engine(tmp_path):
     s = Settings()
     s.sim.mode = "simulated"
-    s.ai.base_url = "http://127.0.0.1:9/v1"          # nothing listens: exercises the offline path
+    s.ai.base_url = AI_URL          # nothing listens: exercises the offline path
     s.ai.timeout_s = 1
     s.ui.first_run_complete = True
     e = Engine(s, Database(tmp_path / "e.db"))
@@ -72,6 +73,7 @@ def test_sim_states_reach_the_career_on_the_engine_thread(engine):
 
 def test_chat_goes_offline_gracefully_and_publishes_events(engine):
     toasts, status, changed = [], [], []
+    engine.settings.ai.base_url = NO_AI_URL
     engine.ai_status.connect(lambda ok, msg: status.append(ok))
     engine.thread_changed.connect(changed.append)
     engine.main.run(lambda: engine.ask("hello", "general"))

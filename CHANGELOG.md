@@ -10,6 +10,11 @@
 - New: the co-pilot knows the job (departure, destination, aircraft, load, pay, deadline) and the pilot, treats the aircraft
   as parked until the flight starts (no more bogus distances from a sim that is not flying), and can look up the weather
   for any airport by itself (a `get_weather` tool).
+- Changed: **no fallbacks in the dispatcher either.** Job briefings, debriefs, flight-event call-outs, HR replies, the
+  "assigned your flight" line and the AI job descriptions are written by the model or not at all. When it cannot, you get a
+  notification with the real reason (an assignment is not made at all if its message cannot be written; hiring still works).
+  The template texts, the stock "Say again?" replies and the automatic switch to the text tool protocol are gone.
+  **Tool calling** is now *Native* (default) or *Text protocol*, chosen in Settings > AI; the old *Automatic* option is removed.
 - Fix: airfields with no METAR (the weather service answers with an empty body) were reported as "service unavailable".
 
 ## 2.0.0-beta.2 (pre-release)

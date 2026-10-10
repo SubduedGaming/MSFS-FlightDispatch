@@ -82,41 +82,15 @@ def test_prompt_mode_tool_protocol(career):
     assert Dispatcher(career, s, client).chat("How am I doing?") == "You've got money in the bank."
 
 
-def test_auto_mode_falls_back_when_server_rejects_tools(career):
-    n = {"i": 0}
-
+def test_a_server_that_rejects_tools_is_an_error_not_a_silent_switch(career):
     def h(req):
         body = json.loads(req.content)
-        n["i"] += 1
-        if "tools" in body:
-            return httpx.Response(400, json={"error": {"message": "model does not support tools"}})
-        return completion("Fallback works.")
+        assert "tools" in body                                  # native tool calling, as configured
+        return httpx.Response(400, json={"error": {"message": "model does not support tools"}})
 
     client, s = make_client(h)
-    d = Dispatcher(career, s, client)
-    assert d.chat("hi") == "Fallback works."
-    assert d._prompt_tools is True
-
-
-def test_destructive_tools_need_confirmation(career):
-    d = Dispatcher(career, Settings(), None)
-    assert "error" in d.tools.call("buy_aircraft", {"type_id": "c172", "location_icao": "EGLL"})
-    assert "error" in d.tools.call("abandon_job", {})
-    poor = d.tools.call("buy_aircraft", {"type_id": "c152", "location_icao": "EGLL", "confirmed": True})
-    assert "Insufficient funds" in poor["error"]
-    career.db.add_transaction(100000, "test", "top up")
-    before = career.db.pilot().balance
-    res = d.tools.call("buy_aircraft", {"type_id": "c152", "location_icao": "EGLL", "confirmed": True})
-    assert res["ok"] and career.db.pilot().balance < before
-    assert len(career.db.hangar()) == 2
-
-
-def test_tool_errors_do_not_crash(career):
-    d = Dispatcher(career, Settings(), None)
-    assert "error" in d.tools.call("nonexistent", {})
-    assert "error" in d.tools.call("accept_job", {"job_id": 99999, "aircraft_id": 1})
-    assert "error" in d.tools.call("get_job", {"job_id": 123456})
-    assert "error" in d.tools.call("get_job", {"wrong": 1})
+    with pytest.raises(LLMError, match="does not support tools"):
+        Dispatcher(career, s, client).chat("hi")
 
 
 def test_accept_via_tool_enforces_rules(career):
@@ -127,19 +101,26 @@ def test_accept_via_tool_enforces_rules(career):
     assert "Cargo limit" in res["error"]
 
 
-def test_offline_llm_uses_templates_and_raises_on_chat(career):
+def test_a_down_model_raises_everywhere_and_nothing_is_made_up(career):
     def boom(req):
         raise httpx.ConnectError("down")
     client, s = make_client(boom)
     d = Dispatcher(career, s, client)
     job = career.db.jobs("offered")[0]
-    plane = career.db.hangar()[0]
-    career.db.set_job(job.id, aircraft_id=plane.id)
-    text = d.brief_job(career.db.job(job.id))
-    assert job.origin in text and "nm" in text
-    assert d.react("low_fuel", "Low fuel: 5 gal remaining")
+    career.db.set_job(job.id, aircraft_id=career.db.hangar()[0].id)
+    with pytest.raises(LLMError):
+        d.brief_job(career.db.job(job.id))
+    with pytest.raises(LLMError):
+        d.react("low_fuel", "Low fuel: 5 gal remaining")
     with pytest.raises(LLMError):
         d.chat("hello")
+    assert [m for m in career.db.messages() if m["role"] == "assistant"] == []
+
+
+def test_an_empty_model_answer_is_an_error(career):
+    client, s = make_client(lambda r: completion(""))
+    with pytest.raises(LLMError, match="empty answer"):
+        Dispatcher(career, s, client).chat("hello")
 
 
 def test_enhance_jobs_rewrites_briefings(career):

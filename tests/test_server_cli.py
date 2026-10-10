@@ -1,3 +1,4 @@
+from conftest import AI_URL, NO_AI_URL  # noqa: F401
 import http.client
 import json
 import re
@@ -16,7 +17,7 @@ def test_server_cli_runs_pairs_and_stops(tmp_path, monkeypatch):
         from skydispatch.core.config import Settings
         from skydispatch.db.database import Database
         s = Settings()
-        s.ai.base_url = "http://127.0.0.1:9/v1"
+        s.ai.base_url = AI_URL
         e = Engine(s, Database(tmp_path / "c.db"))
         box["engine"] = e
         return e

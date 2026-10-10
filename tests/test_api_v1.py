@@ -1,4 +1,5 @@
 """The phone-facing API: pairing, bearer tokens, the /api/v1 alias, the live stream and career setup."""
+from conftest import AI_URL, NO_AI_URL  # noqa: F401
 import http.client
 import json
 import threading
@@ -15,7 +16,7 @@ from skydispatch.web.server import WebRemote
 def make_engine(tmp_path, career=True):
     s = Settings()
     s.sim.mode = "simulated"
-    s.ai.base_url = "http://127.0.0.1:9/v1"
+    s.ai.base_url = AI_URL
     s.ai.timeout_s = 1
     e = Engine(s, Database(tmp_path / "e.db"))
     if career:

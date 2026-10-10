@@ -57,7 +57,7 @@ class AISettings:
     # "none" switches the thinking off (LM Studio); blank sends nothing for models/servers that reject the setting.
     reasoning_effort: str = "none"
     # "native" = OpenAI tool calling, "prompt" = text protocol (works with any model)
-    tool_mode: str = "auto"
+    tool_mode: str = "native"
     persona: str = "marcus"
     copilot: str = "sam"
     copilot_enabled: bool = True
