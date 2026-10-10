@@ -20,7 +20,7 @@ class CareerTest {
         MockWebServer().use { s ->
             s.enqueue(MockResponse().setBody(optionsJson))
             s.start()
-            val o = Api("http://${s.hostName}:${s.port}", "tok").careerOptions()
+            val o = Api("http://127.0.0.1:${s.port}", "tok").careerOptions()
             assertEquals(2, o.starters.size)
             assertFalse(o.starters[1].installed)
             assertEquals(25000.0, o.defaults.balance, 0.0)
