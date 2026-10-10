@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Plain HTTP is allowed because the server lives on the home network and has no certificate. The app itself only
+     lets you enter private (LAN) addresses; see PairingLink.isPrivateHost. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>
