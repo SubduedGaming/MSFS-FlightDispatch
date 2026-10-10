@@ -23,7 +23,7 @@ import java.util.concurrent.TimeUnit
 class ApiException(message: String, val status: Int = 0) : IOException(message)
 
 class Api(private val baseUrl: String, private val token: String? = null) {
-    private val json = Json { ignoreUnknownKeys = true }
+    private val json = Json { ignoreUnknownKeys = true; coerceInputValues = true }
     private val http = OkHttpClient.Builder()
         .connectTimeout(5, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS).build()
 
@@ -56,5 +56,25 @@ class Api(private val baseUrl: String, private val token: String? = null) {
         return json.decodeFromString(call("pair", body))
     }
 
-    suspend fun state(): JsonObject = json.parseToJsonElement(call("state")).jsonObject
+    suspend fun state(): JsonObject = getObject("state")
+
+    suspend fun getObject(path: String): JsonObject = json.parseToJsonElement(call(path)).jsonObject
+
+    suspend fun postObject(path: String, body: JsonObject): JsonObject =
+        json.parseToJsonElement(call(path, body.toString())).jsonObject
+
+    suspend fun careerOptions(): CareerOptions = json.decodeFromString(call("career/options"))
+
+    suspend fun createCareer(body: JsonObject) { call("career", body.toString()) }
+}
+
+/** Check that [host]:[port] is a SkyDispatch server on the home network and trade [code] for a device token. */
+suspend fun pairWith(host: String, port: Int, code: String, deviceName: String): Connection {
+    if (port !in 1..65535) throw ApiException("That port is not valid.")
+    if (!PairingLink.isPrivateHost(host)) {
+        throw ApiException("Use the PC's home-network address (it usually starts with 192.168 or 10).")
+    }
+    val base = "http://${host.trim()}:$port"
+    if (Api(base).ping().app != "SkyDispatch") throw ApiException("That is not a SkyDispatch server.")
+    return Connection(base, Api(base).pair(code.trim(), deviceName).token)
 }
