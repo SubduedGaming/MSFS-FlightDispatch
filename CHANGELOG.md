@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.0.0-beta.3 (pre-release)
 - Fix: **the co-pilot gave canned or irrelevant answers.** Reasoning models (Qwen3.5 and similar) spent the whole reply
   budget thinking and returned nothing, and the app then showed a stock "Standing by, Captain" line. The AI client now sends
   `reasoning_effort: "none"` (Settings > AI > *Reasoning effort*; blank sends nothing).
