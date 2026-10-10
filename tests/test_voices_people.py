@@ -112,8 +112,7 @@ def ctx(qtbot, tmp_path):
     c.voice.drop_unless = lambda tags: dropped.append(set(tags))
     c.said, c.dropped = said, dropped
     yield c
-    c.stop_sim()
-    c.voice.shutdown()
+    c.shutdown()
 
 
 def test_nothing_is_spoken_for_a_conversation_nobody_is_viewing(ctx):
@@ -204,15 +203,19 @@ def test_closing_the_browser_stops_listening(qtbot, ctx):
         stream_conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
         ready = threading.Event()
 
+        stream_response = []                  # keep the response: dropping it closes the stream from the client side
+
         def listen():
             stream_conn.request("GET", "/api/stream?v=viewer12345", headers={"Cookie": cookie})
-            stream_conn.getresponse()
+            stream_response.append(stream_conn.getresponse())
             ready.set()
         threading.Thread(target=listen, daemon=True).start()
         qtbot.waitUntil(lambda: ready.is_set(), timeout=8000)
         out.clear()
         threading.Thread(target=call, args=("POST", "/api/view", {"viewer": "viewer12345", "thread": "general"}, hdr), daemon=True).start()
-        qtbot.waitUntil(lambda: bool(out) and ctx.viewing.get("remote:viewer12345") == "general", timeout=8000)
+        qtbot.waitUntil(lambda: bool(out), timeout=8000)
+        assert out[0][0] == 200, out[0]
+        qtbot.waitUntil(lambda: ctx.viewing.get("remote:viewer12345") == "general", timeout=8000)
         stream_conn.close()                                       # the browser tab is closed
         remote.stop()                                              # ends the stream promptly on the server side too
         qtbot.waitUntil(lambda: "remote:viewer12345" not in ctx.viewing, timeout=8000)

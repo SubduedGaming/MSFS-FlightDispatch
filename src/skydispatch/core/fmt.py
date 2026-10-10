@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from ..core.config import Settings
-from ..core.geo import fmt_duration
+from .config import Settings
+from .geo import fmt_duration
 
 NM_TO_KM = 1.852
 LB_TO_KG = 0.45359237

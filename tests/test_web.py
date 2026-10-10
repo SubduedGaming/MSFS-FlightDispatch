@@ -25,8 +25,7 @@ def ctx(qtbot, tmp_path):
     c.career.start_career("Test Pilot", "TST1", "EGLL", "c172", 25000)
     yield c
     c.stop_web()
-    c.stop_sim()
-    c.voice.shutdown()
+    c.shutdown()
 
 
 @pytest.fixture
@@ -62,7 +61,7 @@ def test_no_career_gives_a_clear_error(qtbot, tmp_path):
         assert st == 409 and "setup" in data["error"].lower()
         assert RemoteApi(ctx).handle("GET", "/api/state", {}, None)[1]["has_career"] is False
     finally:
-        ctx.voice.shutdown()
+        ctx.shutdown()
 
 
 def test_market_accept_and_flight_page(ctx, api):

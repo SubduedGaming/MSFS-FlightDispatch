@@ -130,6 +130,7 @@ class PiperEngine(TTSEngine):
         self._voice = None
         self._loaded_name = ""
         self._stop = threading.Event()
+        self._synth_lock = threading.Lock()
 
     def voice_name(self, override: str = "") -> str:
         return resolve_piper_voice(self.cfg, override or self._persona_voice())
@@ -153,31 +154,45 @@ class PiperEngine(TTSEngine):
             self._loaded_name = name
         return self._voice
 
+    def can_synthesize(self, voice: str = "") -> bool:
+        """True when Piper can render `voice` to audio data (no sound card needed: the phone plays it)."""
+        try:
+            import piper  # noqa: F401
+        except Exception:
+            return False
+        return piper_installed(self.voice_name(voice))
+
+    def synthesize(self, text: str, voice: str = "", speed: float = 1.0) -> tuple[bytes, int]:
+        """Render `text` to 16-bit mono PCM. Returns (samples, sample rate); empty samples when there is nothing."""
+        with self._synth_lock:                                  # the Piper voice object is not thread safe
+            voice = self._load(voice)
+            rate = getattr(getattr(voice, "config", None), "sample_rate", 22050)
+            speed = max(0.5, min(2.0, speed * self.cfg.tts_rate))
+            chunks: list[bytes] = []
+            if hasattr(voice, "synthesize_stream_raw"):             # piper-tts 1.2
+                chunks = list(voice.synthesize_stream_raw(text))
+            else:                                                   # piper-tts >= 1.3
+                # Speed changes the model's own timing (length_scale) so pitch stays natural; a little extra variation
+                # in intonation (noise scales) makes the delivery less flat.
+                try:
+                    from piper import SynthesisConfig
+                    cfg = SynthesisConfig(length_scale=1.0 / speed, noise_scale=0.75, noise_w_scale=0.9)
+                    stream = voice.synthesize(text, syn_config=cfg)
+                except (ImportError, TypeError):
+                    stream = voice.synthesize(text)
+                for c in stream:
+                    rate = getattr(c, "sample_rate", rate)
+                    chunks.append(c.audio_int16_bytes)
+            return b"".join(chunks), int(rate)
+
     def speak(self, text: str, voice: str = "", speed: float = 1.0) -> None:
         import numpy as np
         import sounddevice as sd
         self._stop.clear()
-        voice = self._load(voice)
-        rate = getattr(getattr(voice, "config", None), "sample_rate", 22050)
-        speed = max(0.5, min(2.0, speed * self.cfg.tts_rate))
-        chunks: list[bytes] = []
-        if hasattr(voice, "synthesize_stream_raw"):             # piper-tts 1.2
-            chunks = list(voice.synthesize_stream_raw(text))
-        else:                                                   # piper-tts >= 1.3
-            # Speed changes the model's own timing (length_scale) so pitch stays natural; a little extra variation in
-            # intonation (noise scales) makes the delivery less flat.
-            try:
-                from piper import SynthesisConfig
-                cfg = SynthesisConfig(length_scale=1.0 / speed, noise_scale=0.75, noise_w_scale=0.9)
-                stream = voice.synthesize(text, syn_config=cfg)
-            except (ImportError, TypeError):
-                stream = voice.synthesize(text)
-            for c in stream:
-                rate = getattr(c, "sample_rate", rate)
-                chunks.append(c.audio_int16_bytes)
-        if not chunks or self._stop.is_set():
+        pcm, rate = self.synthesize(text, voice, speed)
+        if not pcm or self._stop.is_set():
             return
-        audio = np.frombuffer(b"".join(chunks), dtype=np.int16).astype(np.float32) / 32768.0
+        audio = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
         audio *= max(0.0, min(1.0, self.cfg.tts_volume))
         from .stt import resolve_device
         dev = resolve_device(self.cfg.output_device, "output")
@@ -278,6 +293,7 @@ class TTSManager:
         self._q: queue.Queue[tuple[str, str, str, float] | None] = queue.Queue()
         self._current_tag = ""
         self._engine: TTSEngine | None = None
+        self._synth_engine: PiperEngine | None = None      # renders audio for phones (no sound card needed)
         self._lock = threading.Lock()
         self._thread = threading.Thread(target=self._worker, daemon=True, name="tts")
         self._thread.start()
@@ -299,6 +315,23 @@ class TTSManager:
                     return c
             self._engine = None
             return None
+
+    def _piper(self) -> PiperEngine:
+        if self._synth_engine is None:
+            self._synth_engine = PiperEngine(self.cfg, lambda: self.persona_voice)
+        return self._synth_engine
+
+    def can_synthesize(self, voice: str = "") -> bool:
+        """Can speech be rendered to audio data (for a phone)? Only the natural Piper voices can; OS voices cannot."""
+        return (self.cfg.tts_engine in ("auto", "piper") and self._piper().can_synthesize(voice))
+
+    def synthesize(self, text: str, voice: str = "", speed: float = 1.0) -> bytes | None:
+        """A WAV of `text` spoken by `voice`, or None when this PC cannot render audio."""
+        if not self.can_synthesize(voice):
+            return None
+        from .audio import pcm_to_wav
+        pcm, rate = self._piper().synthesize(speakable(text), voice, speed)
+        return pcm_to_wav(pcm, rate) if pcm else None
 
     def active_engine_name(self) -> str:
         e = self.engine()

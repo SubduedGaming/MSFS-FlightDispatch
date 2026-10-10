@@ -14,23 +14,23 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog
                                QHBoxLayout, QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QSpinBox,
                                QTabWidget, QVBoxLayout, QWidget)
 
-from ... import __version__
-from ...ai.llm import LMStudioClient
-from ...ai.personas import PERSONAS
-from ...copilot.personas import COPILOTS
-from ...sim.installed import parse_ids
-from ..folder_picker import pick_packages_folder
-from ...core import paths
-from ...core.config import AISettings
-from ...sim.simconnect_provider import simconnect_available
-from ...voice import gpu as gpu_mod
-from ...voice import stt as stt_mod
-from ...voice import tts as tts_mod
-from ...voice.hotkey import hotkey_available
-from ..widgets import heading, muted
-from ..dialogs import InstalledAircraftDialog
-from ..workers import run_async
-from .base import Page
+from .. import __version__
+from ..ai.llm import LMStudioClient
+from ..ai.personas import PERSONAS
+from ..copilot.personas import COPILOTS
+from ..sim.installed import parse_ids
+from ..ui.folder_picker import pick_packages_folder
+from ..core import paths
+from ..core.config import AISettings
+from ..sim.simconnect_provider import simconnect_available
+from ..voice import gpu as gpu_mod
+from ..voice import stt as stt_mod
+from ..voice import tts as tts_mod
+from ..ui.widgets import heading, muted
+from ..ui.dialogs import InstalledAircraftDialog
+from ..ui.workers import run_async
+from . import autostart
+from .page import Page
 
 log = logging.getLogger(__name__)
 
@@ -62,7 +62,6 @@ def _combo(items: list[tuple[str, str]], editable: bool = False) -> QComboBox:
 
 class SettingsPage(Page):
     title = "Settings"
-    run_wizard = Signal()
     theme_changed = Signal(str)
     progress = Signal(float)
     gpu_progress = Signal(float, str)
@@ -198,6 +197,14 @@ class SettingsPage(Page):
                         "the aircraft's fuel and payload, only before the flight starts, and only when the sim "
                         "aircraft is the one your contract uses."))
         lay.addWidget(gp)
+        if autostart.supported():
+            gs = QGroupBox("Startup")
+            fs = QFormLayout(gs)
+            self.autostart_box = QCheckBox("Start SkyDispatch (in the tray) when I sign in to Windows")
+            self.autostart_box.setChecked(autostart.is_enabled())
+            self.autostart_box.toggled.connect(self._toggle_autostart)
+            fs.addRow(self.autostart_box)
+            lay.addWidget(gs)
         gu = QGroupBox("Updates")
         fu = QFormLayout(gu)
         fu.addRow(self._bind(QCheckBox("Check for a newer version when SkyDispatch starts"), "ui", "check_updates"))
@@ -216,9 +223,6 @@ class SettingsPage(Page):
         f2.addRow("Currency symbol:", self._bind(_combo([("$", "$"), ("£", "£"), ("€", "€"),
                                                           ("¥", "¥")]), "ui", "currency"))
         lay.addWidget(g2)
-        rw = QPushButton("Run setup wizard again...")
-        rw.clicked.connect(self.run_wizard.emit)
-        lay.addWidget(rw)
         lay.addStretch(1)
         return w
 
@@ -254,9 +258,9 @@ class SettingsPage(Page):
         row.addWidget(test)
         row.addWidget(self.sim_status, 1)
         lay.addLayout(row)
+        lay.addWidget(self._remote_group())
         if sys.platform == "win32":
             lay.addWidget(self._share_group())
-            lay.addWidget(self._remote_group())
         else:
             lay.addWidget(muted(
                 "MSFS runs on Windows. To use this computer for your career, open SkyDispatch on the Windows PC, "
@@ -291,6 +295,16 @@ class SettingsPage(Page):
         lay.addStretch(1)
         return w
 
+    def _toggle_autostart(self, on: bool) -> None:
+        try:
+            autostart.set_enabled(on)
+        except OSError as exc:
+            log.warning("could not change the startup setting: %s", exc)
+            self.autostart_box.blockSignals(True)
+            self.autostart_box.setChecked(autostart.is_enabled())
+            self.autostart_box.blockSignals(False)
+            self.ctx.toast.emit("warn", f"Could not change the startup setting: {exc}")
+
     def _share_group(self) -> QWidget:
         g = QGroupBox("Share flight data with other computers")
         f = QFormLayout(g)
@@ -315,28 +329,25 @@ class SettingsPage(Page):
         return g
 
     def _remote_group(self) -> QWidget:
-        g = QGroupBox("Browser remote (use SkyDispatch from a Mac, tablet or phone)")
+        g = QGroupBox("Phone access")
         f = QFormLayout(g)
-        f.addRow(self._bind(QCheckBox("Serve the web remote from this PC"), "remote", "enabled"))
+        f.addRow(self._bind(QCheckBox("Accept connections from the SkyDispatch phone app (and the browser remote)"),
+                            "remote", "enabled"))
         self.remote_port = self._bind(QSpinBox(), "remote", "port")
         self.remote_port.setRange(1024, 65535)
+        f.addRow("Port:", self.remote_port)
         self.remote_token = self._bind(QLineEdit(), "remote", "token")
         trow = QHBoxLayout()
         trow.addWidget(self.remote_token, 1)
         gen = QPushButton("Generate")
         gen.clicked.connect(lambda: self.remote_token.setText(secrets.token_urlsafe(9)))
         trow.addWidget(gen)
-        f.addRow("Port:", self.remote_port)
-        f.addRow("Access code:", trow)
+        f.addRow("Browser access code:", trow)
         self.remote_info = muted("")
         f.addRow(self.remote_info)
-        open_btn = QPushButton("Open on this PC")
-        open_btn.clicked.connect(lambda: QDesktopServices.openUrl(
-            QUrl(f"http://127.0.0.1:{self.settings.remote.port}/")))
-        f.addRow(open_btn)
-        f.addRow(muted("Open the address in a browser on your Mac and type the access code once. Voice, the sim and "
-                       "the AI all keep running on this PC; the browser is only a remote control. Only enable this "
-                       "on a network you trust. Changing the access code signs every device out."))
+        f.addRow(muted("Pair a phone on the Phones tab. The browser access code is only for the older browser remote; "
+                       "changing it signs the browsers out (paired phones are not affected). Only enable this on a "
+                       "network you trust: the connection is not encrypted."))
         self.ctx.settings_changed.connect(self._update_remote_info)
         self._update_remote_info()
         return g
@@ -345,10 +356,11 @@ class SettingsPage(Page):
         if self.ctx.closed or not hasattr(self, "remote_info"):
             return
         web = self.ctx.web
+        paired = len(self.ctx.pairing.devices())
         if web is not None and web.running:
-            from ...sim.bridge_server import local_addresses
+            from ..sim.bridge_server import local_addresses
             addrs = "  or  ".join(f"http://{a}:{self.settings.remote.port}/" for a in local_addresses())
-            self.remote_info.setText(f"On. Open {addrs} on your other device. Browser windows open: {web.client_count}.")
+            self.remote_info.setText(f"On at {addrs}. Paired phones: {paired}. Open connections: {web.client_count}.")
         else:
             self.remote_info.setText(self.ctx.web_error or "Off.")
 
@@ -357,7 +369,7 @@ class SettingsPage(Page):
             return
         host = self.ctx.share_host
         if host:
-            from ...sim.bridge_server import local_addresses
+            from ..sim.bridge_server import local_addresses
             addrs = ", ".join(f"{a}:{self.settings.sim.share_port}" for a in local_addresses()) or "no network found"
             self.share_info.setText(f"Sharing is on. Connect from other computers to {addrs}. "
                                     f"Connected computers: {host.client_count}.")
@@ -387,7 +399,7 @@ class SettingsPage(Page):
         if not ids:
             text = "Installed aircraft: unknown, so jobs are not restricted."
         else:
-            from ...data.aircraft import get_type
+            from ..data.aircraft import get_type
             names = ", ".join(get_type(i).name for i in sorted(ids) if get_type(i))
             text = f"Installed aircraft ({len(ids)}): {names}"
         mode = "detected automatically" if self.settings.sim.installed_auto else "chosen manually"
@@ -551,6 +563,8 @@ class SettingsPage(Page):
                                   "voice", "output_device")
         f.addRow("Output device:", self.out_dev)
         f.addRow(self._bind(QCheckBox("Automatically speak replies"), "voice", "auto_speak_replies"))
+        f.addRow("Speech is heard on:", self._bind(_combo([("This PC's speakers", "pc"), ("The phone", "phone")]),
+                                                   "voice", "output"))
         tv = QPushButton("Test voice")
         tv.clicked.connect(self._test_voice)
         self.tts_result = QLabel("")
@@ -563,7 +577,7 @@ class SettingsPage(Page):
 
         g2 = QGroupBox("Speaking to the dispatcher (speech-to-text)")
         f2 = QFormLayout(g2)
-        f2.addRow(self._bind(QCheckBox("Enable microphone / push-to-talk"), "voice", "stt_enabled"))
+        f2.addRow(self._bind(QCheckBox("Enable speech recognition (hold-to-talk from the phone)"), "voice", "stt_enabled"))
         f2.addRow("Recognition model:", self._bind(_combo([(m, m) for m in WHISPER_MODELS]), "voice", "stt_model"))
         f2.addRow("Processor:", self._bind(_combo([("Automatic", "auto"), ("CPU", "cpu"), ("NVIDIA GPU (CUDA)", "cuda")]),
                                           "voice", "stt_device"))
@@ -574,9 +588,6 @@ class SettingsPage(Page):
         self.in_dev = self._bind(_combo([("System default", "")] + [(d, d) for d in stt_mod.list_input_devices()]),
                                  "voice", "input_device")
         f2.addRow("Microphone:", self.in_dev)
-        f2.addRow("Push-to-talk key:", self._bind(_combo([(k, k) for k in ("F9", "F8", "F7", "F10", "caps_lock",
-                                                                            "scroll_lock", "pause")]),
-                                                 "voice", "push_to_talk_key"))
         tm = QPushButton("Test microphone (3 seconds)")
         tm.clicked.connect(self._test_mic)
         self.stt_result = QLabel("")
@@ -587,8 +598,8 @@ class SettingsPage(Page):
         f2.addRow(r3)
         lay.addWidget(g2)
         ok, msg = stt_mod.stt_available()
-        lay.addWidget(muted(f"Speech recognition: {msg}. Global hotkey while MSFS has focus: "
-                            f"{'available' if hotkey_available() else 'install pynput (pip install pynput)'}."))
+        lay.addWidget(muted(f"Speech recognition: {msg}. The phone app records your voice and the PC turns it into "
+                            "text, so the microphone settings above only matter for the PC's own microphone."))
         lay.addStretch(1)
         return w
 
@@ -666,7 +677,7 @@ class SettingsPage(Page):
         self.ctx.download_character_voices(lambda f, v: self.progress.emit(f), finished)
 
     def _download_voice(self) -> None:
-        from ...ai.personas import get_persona
+        from ..ai.personas import get_persona
         chosen = _combo_value(self.piper_combo)
         voice = chosen or get_persona(_combo_value(self.persona_combo) or self.settings.ai.persona).piper_voice
         self.dl_btn.setEnabled(False)
@@ -805,7 +816,7 @@ class SettingsPage(Page):
         self._backup()
         self.db.reset_career()
         self.ctx.career._fire("career_reset")
-        self.run_wizard.emit()
+        self.ctx.toast.emit("info", "Career erased. Start a new one from the phone app.")
 
     def _download_airports(self) -> None:
         self.apt_label.setText("Downloading...")

@@ -3,7 +3,7 @@
 Security model: the page and script are public (they hold no data); everything under /api needs the session cookie
 that ``POST /api/login`` sets after the access code is typed once. The cookie is HttpOnly + SameSite=Strict, writes
 need a custom header, and wrong codes are rate limited. Nothing here ever touches the sim or database off the GUI
-thread: requests are marshalled through ``MainThread``.
+thread: requests are marshalled onto the engine thread (``ctx.main``).
 """
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ import json
 import logging
 import mimetypes
 import queue
+import re
 import socket
 import sys
 import threading
@@ -22,12 +23,18 @@ from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 
 from .. import __version__
+from ..server.pairing import PairingError
+from ..voice.audio import AudioError, wav_to_mono16k
 from .api import Csv, RemoteApi
-from .mainthread import MainThread
 
 log = logging.getLogger("skydispatch.web")
 
+API_VERSION = 1
+V1 = "/api/v1/"
 MAX_BODY = 64 * 1024
+MAX_AUDIO = 2 * 1024 * 1024         # a recorded voice clip (about a minute of 16 kHz speech)
+AUDIO_ID = re.compile(r"^/api/voice/audio/([0-9a-f]{8,32})$")
+THREAD_RX = re.compile(r"^(general|copilot|employer:[a-z0-9_-]{1,40})$")
 MAX_STREAMS = 16
 COOKIE = "sd_session"
 CSP = ("default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; "
@@ -128,7 +135,18 @@ class _Handler(BaseHTTPRequestHandler):
         self._send(status, json.dumps(obj, default=str).encode(), "application/json; charset=utf-8",
                    {"Cache-Control": "no-store", **(extra or {})})
 
+    def _bearer_device(self):
+        """The paired phone whose device token is in the Authorization header, or None."""
+        header = self.headers.get("Authorization") or ""
+        scheme, _, value = header.partition(" ")
+        if scheme.lower() != "bearer" or not value.strip():
+            return None
+        pairing = getattr(self.remote.ctx, "pairing", None)
+        return pairing.authenticate(value.strip()) if pairing else None
+
     def _authed(self) -> bool:
+        if self._bearer_device() is not None:
+            return True
         token = self.remote.token
         if not token:
             return False                              # an unset access code never lets anyone in
@@ -154,33 +172,57 @@ class _Handler(BaseHTTPRequestHandler):
         return data if isinstance(data, dict) else None
 
     # ---------------------------------------------------------------- verbs
+    @staticmethod
+    def _v1(path: str) -> str:
+        """The app's /api/v1/... is the same API as the browser's /api/..."""
+        return "/api/" + path[len(V1):] if path.startswith(V1) else path
+
     def do_GET(self) -> None:
         url = urlsplit(self.path)
-        path, query = url.path, dict(parse_qsl(url.query))
+        path, query = self._v1(url.path), dict(parse_qsl(url.query))
         if not path.startswith("/api/"):
             return self._static(path)
         if path == "/api/ping":
-            return self._json(200, {"app": "SkyDispatch", "version": __version__, "authed": self._authed()})
+            return self._json(200, {"app": "SkyDispatch", "version": __version__, "api": API_VERSION,
+                                    "authed": self._authed()})
         if not self._authed():
             return self._json(401, {"error": "Sign in with your access code."})
         if path == "/api/stream":
             return self._stream(query.get("v", ""))
+        m = AUDIO_ID.match(path)
+        if m:
+            return self._audio(m.group(1))
         self._api("GET", path, query, None)
 
     def do_POST(self) -> None:
         url = urlsplit(self.path)
-        if self.headers.get("X-SkyDispatch") != "1":
+        path = self._v1(url.path)
+        device = self._bearer_device()
+        # Browsers send cookies on their own, so cookie requests must prove they are ours with a custom header; an
+        # explicit Authorization header cannot be forged by another website.
+        if device is None and self.headers.get("X-SkyDispatch") != "1":
             return self._json(403, {"error": "Forbidden"})
+        if path == "/api/voice/transcribe":                # a recording, not JSON
+            if device is None and not self._authed():
+                return self._json(401, {"error": "Sign in with your access code."})
+            return self._transcribe(dict(parse_qsl(url.query)))
         body = self._read_body()
         if body is None:
             return self._json(400, {"error": "Invalid request body"})
-        if url.path == "/api/login":
+        if path == "/api/login":
             return self._login(body)
-        if url.path == "/api/logout":
+        if path == "/api/pair":
+            return self._pair(body)
+        if path == "/api/logout":
             return self._json(200, {"ok": True}, {"Set-Cookie": f"{COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict"})
-        if not self._authed():
+        if device is None and not self._authed():
             return self._json(401, {"error": "Sign in with your access code."})
-        self._api("POST", url.path, dict(parse_qsl(url.query)), body)
+        if path == "/api/unpair":
+            if device is None:
+                return self._json(400, {"error": "Only a paired phone can unpair itself."})
+            self.remote.ctx.pairing.revoke(device.id)
+            return self._json(200, {"ok": True})
+        self._api("POST", path, dict(parse_qsl(url.query)), body)
 
     # ---------------------------------------------------------------- handlers
     def _login(self, body: dict) -> None:
@@ -197,6 +239,68 @@ class _Handler(BaseHTTPRequestHandler):
         self.remote.clear_failures(ip)
         cookie = f"{COOKIE}={session_value(token)}; Path=/; Max-Age={30 * 86400}; HttpOnly; SameSite=Strict"
         self._json(200, {"ok": True}, {"Set-Cookie": cookie})
+
+    def _audio(self, utterance_id: str) -> None:
+        """The spoken audio for a `speech` event. Rendered here, off the engine thread, because it takes a while."""
+        ctx = self.remote.ctx
+        utt = ctx.speech_store.get(utterance_id)
+        if utt is None:
+            return self._json(404, {"error": "That speech is no longer available."})
+        try:
+            wav = ctx.render_utterance(utt)
+        except Exception as exc:
+            log.exception("could not render speech")
+            return self._json(500, {"error": f"Could not make the audio: {exc}"})
+        if not wav:
+            return self._json(503, {"error": "This PC cannot make audio for that voice. Speak the text on the phone."})
+        self._send(200, wav, "audio/wav", {"Cache-Control": "no-store"})
+
+    def _transcribe(self, query: dict) -> None:
+        """Turn a recorded clip (WAV) into text, and optionally say it in a conversation (?send=<thread>)."""
+        ctx = self.remote.ctx
+        send = query.get("send", "")
+        if send and not THREAD_RX.match(send):
+            return self._json(400, {"error": "Unknown conversation."})
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            n = -1
+        if n <= 0:
+            return self._json(400, {"error": "Send the recording as the request body."})
+        if n > MAX_AUDIO:
+            return self._json(413, {"error": "That recording is too long."})
+        ok, msg = ctx.voice.stt_status()
+        if not ok or not ctx.settings.voice.stt_enabled:
+            return self._json(503, {"error": msg if not ok else "Speech recognition is turned off on the PC."})
+        try:
+            audio = wav_to_mono16k(self.rfile.read(n))
+        except AudioError as exc:
+            return self._json(400, {"error": str(exc)})
+        try:
+            text = ctx.voice.stt.transcribe(audio)
+        except Exception as exc:
+            log.exception("transcription failed")
+            return self._json(500, {"error": f"Speech recognition failed: {exc}"})
+        if not text:
+            return self._json(422, {"error": "I didn't hear anything. Try again."})
+        if send:
+            ctx.main.post(lambda: ctx.submit_player_text(text, send))
+        self._json(200, {"text": text, "sent": bool(send)})
+
+    def _pair(self, body: dict) -> None:
+        ip = self.client_address[0]
+        wait = self.remote.lockout_remaining(ip)
+        if wait > 0:
+            return self._json(429, {"error": f"Too many wrong codes. Try again in {wait:.0f} s."})
+        try:
+            device, token = self.remote.ctx.pairing.redeem(str(body.get("code", "")), str(body.get("device_name", "")))
+        except PairingError as exc:
+            self.remote.note_failure(ip)
+            log.warning("Rejected pairing request from %s", ip)
+            return self._json(401, {"error": str(exc)})
+        self.remote.clear_failures(ip)
+        self._json(200, {"token": token, "device_id": device.id, "app": "SkyDispatch", "version": __version__,
+                         "api": API_VERSION})
 
     def _api(self, method: str, path: str, query: dict, body: dict | None) -> None:
         try:
@@ -257,12 +361,12 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 class WebRemote:
-    """Owns the HTTP server. Create it on the GUI thread once; set host/port/token and start/stop as often as needed."""
+    """Owns the HTTP server. Create it once; set host/port/token and start/stop as often as needed."""
 
     def __init__(self, ctx, host: str = "0.0.0.0", port: int = 0, token: str = ""):
         self.ctx, self.host, self.port, self.token = ctx, host, port, token
         self.hub = Hub()
-        self.main = MainThread()
+        self.main = ctx.main                  # the engine thread: .post(fn) and .run(fn, timeout)
         self.api = RemoteApi(ctx, self.hub.publish, self.main.post)
         self.stopping = False
         self._server: _Server | None = None

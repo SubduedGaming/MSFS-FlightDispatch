@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased (towards 2.0: Windows server + Android app)
+- New: **phone API v1** (`/api/v1/...`, described in `docs/api/openapi.json`). A phone pairs once with a one-time code
+  (shown as a QR link by the server) and then uses a per-device bearer token. Tokens are stored hashed in
+  `devices.json`, can be revoked per device, and wrong codes are rate limited. The browser remote keeps working.
+- New: `POST /api/v1/career` and `GET /api/v1/career/options` create a career from the phone (no desktop wizard needed).
+- New: **`skydispatch-server`**, a headless server with no window; prints the address and a pairing code.
+- New: optional LAN announcement (`pip install skydispatch[discovery]`) so a phone can find the server.
+- New: **voice on the phone**. Set `speech_output` to `phone` and the server sends `speech` events plus downloadable audio
+  (`GET /api/v1/voice/audio/<id>`, the characters' own Piper voices) instead of playing on the PC;
+  `POST /api/v1/voice/transcribe` turns a recording from the phone into text (and can send it into a conversation).
+  The default stays `pc`. See `docs/API.md`.
+- Changed: **the Windows app is now a server.** The desktop gameplay screens (dashboard, job board, messenger, flight,
+  hangar, logbook, finances, training) and the setup wizard are gone; you play from the phone app. The window is a small
+  control panel with **Status** (what is running), **Phones** (pairing QR code, paired phones, remove), **Settings** and
+  **Logs**. Closing it keeps SkyDispatch running in the tray; *Start with Windows* is an option in Settings > General.
+  The phone API switches itself on the first time the server edition starts. Settings, career and backups are unchanged.
+- Removed: the global push-to-talk hotkey (`pynput`); hold-to-talk now happens on the phone.
+- New dependency: `segno` (draws the QR code).
+- Internal: the backend runs without Qt (`server/engine.py`); the desktop `AppContext` is a thin Qt layer on top of it.
+- CI: macOS dropped from the test matrix (releases are Windows-only); `numpy` added to the test dependencies.
+
 ## 1.4.3
 - Fix: **fuel was not loaded into the sim aircraft** (payload was). MSFS ignores writes to a tank's quantity on some
   aircraft such as the C172, so fuel is now set by tank level, falling back to quantity on the retry.

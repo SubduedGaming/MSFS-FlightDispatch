@@ -112,7 +112,7 @@ tests/             unit + GUI + end-to-end tests
 - Tested automatically on Linux (unit, GUI and end-to-end flight tests with the simulated engine, a real socket bridge
   test, and a frozen-app + `.deb` smoke test). The Windows/macOS GUI, the SimConnect link to a **real** MSFS, the
   Windows/macOS installers, and real Piper/Whisper audio are built to the libraries' documented APIs but have **not**
-  been exercised on those systems in this repository yet. The CI workflows run the test-suite on all three OSes.
+  been exercised on those systems in this repository yet. There is no automated CI: run `pytest` locally.
 - Weather uses the public aviationweather.gov METAR API when internet is available.
 - The airport database ships with 180 major airports; import the full OurAirports set for worldwide coverage.
 

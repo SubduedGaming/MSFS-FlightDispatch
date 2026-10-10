@@ -28,7 +28,7 @@ from ..pilot import quals
 from ..sim.base import SimState
 from ..planning.loadout import LoadoutError
 from ..sim.installed import installed_types
-from ..ui import fmt
+from ..core import fmt
 
 log = logging.getLogger(__name__)
 
@@ -142,6 +142,8 @@ class RemoteApi:
         ctx.settings_changed.connect(lambda: self._publish("settings", {}))
         ctx.career_event.connect(self._on_career_event)
         ctx.plan_changed.connect(lambda: self._publish("plan", {}))
+        ctx.speech.connect(lambda utt: self._publish("speech", utt))
+        ctx.speech_stop.connect(lambda info: self._publish("speech_stop", info))
 
     def _on_career_event(self, name: str, payload: dict) -> None:
         data: dict[str, Any] = {"name": name}
@@ -199,6 +201,20 @@ class RemoteApi:
                     "sim": {"status": prov.status if prov else "disconnected", "mode": self.settings.sim.mode},
                     "ai_online": self.ctx.dispatcher.online, "has_job": self.db.active_job() is not None,
                     "update": {"version": u.version, "url": u.page_url} if u else None}
+
+        @r("GET", "/api/career/options")
+        def career_options(q, body):
+            return self.ctx.career_options()
+
+        @r("POST", "/api/career")
+        def create_career(q, body):
+            if self.db.pilot() and body.get("confirm_reset") is not True:
+                raise ApiError(409, "A career already exists. Send confirm_reset=true to replace it (this erases it).")
+            self.ctx.create_career(body.get("name", ""), body.get("home", ""), body.get("aircraft", ""),
+                                   callsign=body.get("callsign", ""), experience=body.get("experience", "new"),
+                                   difficulty=body.get("difficulty", "normal"), balance=body.get("balance"),
+                                   currency=body.get("currency"))
+            return {"ok": True}
 
         @r("GET", "/api/dashboard")
         def dashboard(q, body):
@@ -330,7 +346,7 @@ class RemoteApi:
                 text = str(body.get("text", "")).strip()
                 if not text:
                     raise ApiError(400, "Type a question first.")
-                self.ctx.voice.shut_up()
+                self.ctx.silence()
                 self.ctx.ask_copilot(text=text)
             return {"ok": True}
 
@@ -373,7 +389,7 @@ class RemoteApi:
 
         @r("POST", "/api/voice/silence")
         def silence(q, body):
-            self.ctx.voice.shut_up()
+            self.ctx.silence()
             return {"ok": True}
 
         # ------------------------------------------------------------ job board
@@ -442,13 +458,13 @@ class RemoteApi:
             text = str(body.get("text", "")).strip()
             if not text:
                 raise ApiError(400, "Type a message first.")
-            self.ctx.voice.shut_up()
+            self.ctx.silence()
             self.ctx.ask(text, tid)
             return {"ok": True}
 
         @r("POST", "/api/thread/<tid>/availability")
         def availability(tid, q, body):
-            self.ctx.voice.shut_up()
+            self.ctx.silence()
             self.ctx.answer_availability(tid, int(body.get("minutes", 60)))
             return {"ok": True}
 
@@ -704,7 +720,8 @@ class RemoteApi:
             s, u = self.settings, self.ctx.update_info
             tts_ok, tts_msg = self.ctx.voice.tts_status()
             stt_ok, stt_msg = self.ctx.voice.stt_status()
-            return {"auto_speak_replies": s.voice.auto_speak_replies, "copilot_callouts": s.ai.copilot_callouts,
+            return {"auto_speak_replies": s.voice.auto_speak_replies, "speech_output": s.voice.output,
+                    "copilot_callouts": s.ai.copilot_callouts,
                     "units_distance": s.ui.units_distance, "units_weight": s.ui.units_weight,
                     "voice": {"speech_out": tts_ok, "speech_in": stt_ok and s.voice.stt_enabled,
                               "note": "" if stt_ok else stt_msg},
@@ -718,7 +735,11 @@ class RemoteApi:
             if "auto_speak_replies" in body:
                 s.voice.auto_speak_replies = bool(body["auto_speak_replies"])
                 if not s.voice.auto_speak_replies:
-                    self.ctx.voice.shut_up()
+                    self.ctx.silence()
+            if body.get("speech_output") in ("pc", "phone"):
+                if s.voice.output != body["speech_output"]:
+                    self.ctx.silence()
+                s.voice.output = body["speech_output"]
             if "copilot_callouts" in body:
                 s.ai.copilot_callouts = bool(body["copilot_callouts"])
             if "auto_sync_loadout" in body:
@@ -849,7 +870,4 @@ class RemoteApi:
                 "quick": [{"key": k, "label": v} for k, v in QUICK_ACTIONS]}
 
     def _heard(self, text: str, target: str) -> None:
-        if target == "copilot":
-            self.ctx.ask_copilot(text=text)
-        else:
-            self.ctx.ask(text, target)
+        self.ctx.submit_player_text(text, target)
