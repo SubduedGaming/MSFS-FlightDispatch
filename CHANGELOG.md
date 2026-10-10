@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+- Fix: **the co-pilot gave canned or irrelevant answers.** Reasoning models (Qwen3.5 and similar) spent the whole reply
+  budget thinking and returned nothing, and the app then showed a stock "Standing by, Captain" line. The AI client now sends
+  `reasoning_effort: "none"` (Settings > AI > *Reasoning effort*; blank sends nothing).
+- Changed: **no fallbacks in the co-pilot.** If the AI cannot answer, you get a notification with the real reason instead of
+  a made-up reply. The keyword-guessing answers are gone; the quick buttons (checklist, fuel, descent, approach, weather,
+  status, and the new *Job details*) remain as explicit reports.
+- New: the co-pilot knows the job (departure, destination, aircraft, load, pay, deadline) and the pilot, treats the aircraft
+  as parked until the flight starts (no more bogus distances from a sim that is not flying), and can look up the weather
+  for any airport by itself (a `get_weather` tool).
+- Fix: airfields with no METAR (the weather service answers with an empty body) were reported as "service unavailable".
+
 ## 2.0.0-beta.2 (pre-release)
 - New: **the Android app** (`android/`, Kotlin + Jetpack Compose). Pair by QR code or by typing the address and code, create
   your pilot, then play: Home (dashboard), Flight (live numbers, plan and loadout, end flight, abandon, copilot chat),

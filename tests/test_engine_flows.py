@@ -100,8 +100,12 @@ def test_copilot_answers_quick_actions_and_questions(engine):
     before = len(e.db.messages(50, "copilot"))
     on_engine(e, lambda: e.ask_copilot(quick="status"))
     wait_for(lambda: len(e.db.messages(50, "copilot")) >= before + 2, what="the copilot's status answer")
+    # A free-text question goes to the AI model. None is running in the tests, so the pilot is told why (no canned reply).
+    toasts = []
+    e.toast.connect(lambda level, msg: toasts.append((level, msg)))
     on_engine(e, lambda: e.ask_copilot(text="what's our fuel?"))
-    wait_for(lambda: len(e.db.messages(50, "copilot")) >= before + 4, 15, "the copilot's answer")
+    wait_for(lambda: any("could not answer" in m for _l, m in toasts), 15, "the co-pilot to say it could not answer")
+    assert [m["role"] for m in e.db.messages(50, "copilot")][-1] == "user"
 
 
 def test_installed_aircraft_detection_updates_the_settings(engine, tmp_path):

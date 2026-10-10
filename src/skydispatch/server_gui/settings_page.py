@@ -445,6 +445,11 @@ class SettingsPage(Page):
         mt = self._bind(QSpinBox(), "ai", "max_tokens")
         mt.setRange(64, 4000)
         f.addRow("Max reply length (tokens):", mt)
+        re_ = self._bind(QLineEdit(), "ai", "reasoning_effort")
+        re_.setPlaceholderText("none")
+        f.addRow("Reasoning effort:", re_)
+        f.addRow(muted('"none" stops reasoning models (Qwen3.5 and similar) from spending the whole reply on thinking. '
+                       "Leave blank to send nothing; a server that does not know the setting will say so."))
         to = self._bind(QDoubleSpinBox(), "ai", "timeout_s")
         to.setRange(5, 600)
         to.setSuffix(" s")

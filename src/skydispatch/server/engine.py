@@ -972,6 +972,8 @@ class Engine:
         def failed(err):
             self._busy("copilot", -1)
             log.warning("copilot failed: %s", err)
+            if not self.closed:
+                self.toast.emit("bad", f"The co-pilot could not answer: {err}")
 
         if quick:
             self.run_async(lambda: self.copilot.say_quick(quick), done, failed)

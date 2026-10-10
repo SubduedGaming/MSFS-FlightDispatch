@@ -338,7 +338,7 @@ def fetch_metar(icao: str, timeout: float = 6.0) -> dict:
         r = httpx.get("https://aviationweather.gov/api/data/metar", params={"ids": icao, "format": "json"},
                       timeout=timeout)
         r.raise_for_status()
-        data = r.json()
+        data = r.json() if r.content.strip() else []         # small airfields: the service answers with an empty body
         if not data:
             return {"icao": icao, "metar": None, "note": "No METAR available for this station"}
         return {"icao": icao, "metar": data[0].get("rawOb"), "wind_dir": data[0].get("wdir"),

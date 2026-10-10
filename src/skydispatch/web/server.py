@@ -274,19 +274,25 @@ class _Handler(BaseHTTPRequestHandler):
         """Turn a recorded clip (WAV) into text, and optionally say it in a conversation (?send=<thread>)."""
         ctx = self.remote.ctx
         send = query.get("send", "")
-        if send and not THREAD_RX.match(send):
-            return self._json(400, {"error": "Unknown conversation."})
         try:
             n = int(self.headers.get("Content-Length") or 0)
         except ValueError:
             n = -1
+
+        def reject(status: int, message: str) -> None:
+            if 0 < n <= MAX_AUDIO:
+                self._drain()          # the recording is on its way: read it, or Windows resets the connection
+            self._json(status, {"error": message})
+
+        if send and not THREAD_RX.match(send):
+            return reject(400, "Unknown conversation.")
         if n <= 0:
-            return self._json(400, {"error": "Send the recording as the request body."})
+            return reject(400, "Send the recording as the request body.")
         if n > MAX_AUDIO:
-            return self._json(413, {"error": "That recording is too long."})
+            return reject(413, "That recording is too long.")
         ok, msg = ctx.voice.stt_status()
         if not ok or not ctx.settings.voice.stt_enabled:
-            return self._json(503, {"error": msg if not ok else "Speech recognition is turned off on the PC."})
+            return reject(503, msg if not ok else "Speech recognition is turned off on the PC.")
         try:
             audio = wav_to_mono16k(self.rfile.read(n))
         except AudioError as exc:

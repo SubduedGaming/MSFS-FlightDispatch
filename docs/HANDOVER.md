@@ -137,6 +137,12 @@ NOT verified:
 
 ## 7. Working agreements and cautions
 
+- **No fallbacks (owner's rule).** A feature either works or fails visibly with the real error: no canned replies, no
+  "closest alternative" data, no silent retries with other settings. The co-pilot follows this. The **dispatcher still has
+  fallbacks** from the original design (template job briefings, debriefs and event comments in `ai/dispatcher.py` when the
+  model fails, plus a stock "got it" reply); the owner has not yet decided whether to remove them.
+- Reasoning models: the AI client sends `reasoning_effort` (default `none`) so models like Qwen3.5 do not spend the reply on thinking.
+
 - **No CI.** Do not add workflows back; the GitHub integration cannot cancel runs.
 - Commit messages end with the co-author trailer already used on the branch. Git identity is not configured on the owner's
   PC: commits use `-c user.name=SubduedGaming -c user.email=76713813+SubduedGaming@users.noreply.github.com`.

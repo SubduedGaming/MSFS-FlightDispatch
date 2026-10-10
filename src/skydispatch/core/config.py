@@ -53,6 +53,9 @@ class AISettings:
     temperature: float = 0.8
     max_tokens: int = 500
     timeout_s: float = 90.0
+    # Reasoning ("thinking") models such as Qwen3.5 spend their whole reply budget thinking and answer with nothing.
+    # "none" switches the thinking off (LM Studio); blank sends nothing for models/servers that reject the setting.
+    reasoning_effort: str = "none"
     # "native" = OpenAI tool calling, "prompt" = text protocol (works with any model)
     tool_mode: str = "auto"
     persona: str = "marcus"

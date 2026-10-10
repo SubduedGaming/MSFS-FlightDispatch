@@ -79,6 +79,8 @@ class LMStudioClient:
         }
         if self.cfg.model:
             body["model"] = self.cfg.model
+        if (self.cfg.reasoning_effort or "").strip():
+            body["reasoning_effort"] = self.cfg.reasoning_effort.strip()
         if tools:
             body["tools"] = tools
         try:

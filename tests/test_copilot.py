@@ -4,7 +4,7 @@ import json
 import httpx
 import pytest
 
-from skydispatch.ai.llm import LMStudioClient
+from skydispatch.ai.llm import LLMError, LMStudioClient
 from skydispatch.copilot import advice
 from skydispatch.copilot.copilot import CoPilot, THREAD
 from skydispatch.copilot.monitor import CopilotMonitor
@@ -155,10 +155,9 @@ def step(career, p, clock, dt=2.0):
     return clock, snap
 
 
-def test_offline_copilot_answers_from_live_data(career):
+def test_quick_buttons_report_live_data_without_the_ai(career):
     cp = offline_copilot(career)
     assert not cp.in_flight()
-    assert "Standing by" in cp.offline_answer("hello there")
     p = start_flight(career)
     clock = 1000.0
     for _ in range(900):
@@ -166,13 +165,51 @@ def test_offline_copilot_answers_from_live_data(career):
         if p._plan and p._plan["phase"] == "cruise":
             break
     assert cp.in_flight()
-    assert "feet" in cp.ask("how are we doing?") and "knots" in cp.ask("status")
-    assert "gallons" in cp.ask("what's our fuel looking like")
-    assert "Top of descent" in cp.ask("when do we start down?") or "descent" in cp.ask("when do we start down?").lower()
-    assert "Southampton" in cp.ask("brief the approach") or "EGHI" in cp.ask("brief the approach")
-    assert "checklist" in cp.ask("run the checklist").lower()
+    assert "feet" in cp.say_quick("status") and "gallons" in cp.say_quick("fuel")
+    assert "descent" in cp.say_quick("descent").lower()
+    assert "Southampton" in cp.say_quick("approach") or "EGHI" in cp.say_quick("approach")
+    assert "checklist" in cp.say_quick("checklist").lower()
     msgs = career.db.messages(50, THREAD)
     assert msgs[0]["role"] == "user" and all(m["role"] in ("user", "assistant") for m in msgs)
+
+
+def test_no_canned_answer_when_the_ai_is_down(career):
+    cp = offline_copilot(career)
+    with pytest.raises(LLMError):
+        cp.ask("what airport are we departing from?")
+    # the question is kept, but nothing is made up in reply
+    assert [m["role"] for m in career.db.messages(10, THREAD)] == ["user"]
+
+
+def test_an_empty_model_answer_is_an_error_not_a_stock_phrase(career):
+    def handler(req):
+        return httpx.Response(200, json={"choices": [{"message": {"role": "assistant", "content": "",
+                                                                      "reasoning_content": "hmm"}}]})
+    cp = CoPilot(career, career.settings, LMStudioClient(career.settings.ai, transport=httpx.MockTransport(handler)))
+    with pytest.raises(LLMError, match="empty answer"):
+        cp.ask("hello")
+    assert all(m["role"] != "assistant" for m in career.db.messages(10, THREAD))
+
+
+def test_the_model_is_told_to_stop_thinking_and_given_the_job(career):
+    seen = {}
+
+    def handler(req):
+        body = json.loads(req.content)
+        seen.clear()
+        seen.update(body)
+        return httpx.Response(200, json={"choices": [{"message": {"role": "assistant", "content": "EGLL, Captain."}}]})
+
+    cp = CoPilot(career, career.settings, LMStudioClient(career.settings.ai, transport=httpx.MockTransport(handler)))
+    career.settings.ai.reasoning_effort = "none"
+    start_flight(career)
+    assert cp.ask("where are we departing?") == "EGLL, Captain."
+    assert seen["reasoning_effort"] == "none"
+    ctx = json.loads(seen["messages"][0]["content"].split("DATA: ")[1])
+    assert ctx["job"]["departure"]["icao"] and ctx["job"]["destination"]["icao"] == "EGHI"
+    career.settings.ai.reasoning_effort = ""
+    cp.ask("again")
+    assert "reasoning_effort" not in seen
 
 
 def test_llm_copilot_gets_live_data_in_prompt(career):
@@ -191,7 +228,7 @@ def test_llm_copilot_gets_live_data_in_prompt(career):
         clock, _s = step(career, p, clock)
     reply = cp.ask("should I start down?")
     assert reply == "Descend at 500 feet per minute."                              # markdown stripped
-    ctx = json.loads(seen["system"].split("LIVE DATA: ")[1])
+    ctx = json.loads(seen["system"].split("DATA: ")[1])
     assert ctx["flight_in_progress"] and ctx["destination"]["icao"] == "EGHI"
     assert ctx["aircraft"]["name"] == "Cessna 172 Skyhawk" and "altitude_msl_ft" in ctx["live"]
     assert "Sam Ortega" in seen["system"]
