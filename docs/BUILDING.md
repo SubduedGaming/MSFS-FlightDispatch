@@ -15,8 +15,8 @@ OS you are on. Results are written to `dist/`.
 | macOS | `SkyDispatch-<ver>.dmg` and `SkyDispatch-<ver>.pkg` + `Uninstall SkyDispatch.command` | Xcode command-line tools |
 | Linux | `skydispatch_<ver>_amd64.deb` and `SkyDispatch-<ver>-x86_64.AppImage` | `dpkg-deb`; `appimagetool` for the AppImage |
 
-Installers must be built on their own OS (PyInstaller does not cross-compile). The GitHub Actions workflow
-`.github/workflows/release.yml` builds all three when you push a tag such as `v1.0.0`.
+Installers must be built on their own OS (PyInstaller does not cross-compile), by running `python packaging/build.py`
+on that OS. There is no automated release workflow; installers are built by hand.
 
 ## Signing (recommended before sharing builds)
 - **macOS:** set `MACOS_CODESIGN_IDENTITY` and `MACOS_INSTALLER_IDENTITY`, then notarise the result with `notarytool`.
